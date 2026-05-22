@@ -545,8 +545,16 @@ export async function processJob(rawJob, siteConfig, existingIDs, sessionHeaders
         mappedJob = siteConfig.mapper(rawJob);
     }
 
+    if (!mappedJob.JobID) {
+        return null;
+    }
+
+    if (allRawJobs && allRawJobs instanceof Set) {
+        allRawJobs.add(mappedJob.JobID);
+    }
+
     // 2. Duplicate Check
-    if (!mappedJob.JobID || existingIDs.has(mappedJob.JobID)) {
+    if (existingIDs.has(mappedJob.JobID)) {
         return null;
     }
 

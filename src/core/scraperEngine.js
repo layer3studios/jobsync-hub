@@ -8,6 +8,7 @@ export async function scrapeSite(siteConfig, existingIDsMap) {
     const siteName = siteConfig.siteName;
     const existingIDs = existingIDsMap.get(siteName) || new Set();
     const seenInRun = new Set();
+    const savedInRun = new Set();
     const allNewJobs = [];
     const PROCESS_CONCURRENCY = 10;
 
@@ -64,13 +65,13 @@ export async function scrapeSite(siteConfig, existingIDsMap) {
             for (let i = 0; i < jobs.length; i += PROCESS_CONCURRENCY) {
                 const chunk = jobs.slice(i, i + PROCESS_CONCURRENCY);
                 const processedJobs = await Promise.all(
-                    chunk.map(rawJob => processJob(rawJob, siteConfig, existingIDs, sessionHeaders))
+                    chunk.map(rawJob => processJob(rawJob, siteConfig, existingIDs, sessionHeaders, seenInRun))
                 );
 
                 for (const job of processedJobs) {
                     if (!job?.JobID) continue;
-                    if (seenInRun.has(job.JobID)) continue;
-                    seenInRun.add(job.JobID);
+                    if (savedInRun.has(job.JobID)) continue;
+                    savedInRun.add(job.JobID);
                     collectedForPage.push(job);
                 }
             }

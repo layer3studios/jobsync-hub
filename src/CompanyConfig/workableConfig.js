@@ -1,369 +1,271 @@
 ﻿import fetch from 'node-fetch';
+import { StripHtml, SanitizeHtml } from '../utils.js';
+import { normalizeWorkplaceType, normalizeEmploymentType } from '../core/Locationprefilters.js';
+import { normalizeArray } from '../core/jobExtractor.js';
 
-/**
- * How to find the correct slug:
- *   Visit apply.workable.com/{slug} in a browser — the slug in that URL is what goes here.
- *   e.g.  apply.workable.com/innovaccer  →  slug is 'innovaccer'
- *
- * Requests are routed through a Cloudflare Worker (WORKABLE_PROXY_URL in .env) to bypass
- * datacenter IP blocks. Falls back to direct fetch if the env var is not set (local dev).
- */
-const companySlugs = [
-  // Only the requested companies (display name -> slug)
-  'evidence-action',          // Evidence Action
-  'sago-group',               // Sago
-  'waterorg',                 // Water.org
-  'petra-brands',             // Petra Brands
-  'control-risks-6',          // Control Risks
-  'apna',                     // Apna
-  'innovaccer',               // Innovaccer Analytics
-  'lakshya-digital',          // Lakshya Digital
-  'teleport',                 // Teleport
-  'rentokil-initial',         // Rentokil Initial
-  'lytegen',                  // Lytegen
-  'exponent-energy',          // Exponent Energy
-  '2070health',               // 2070Health
-  'mullers-solutions',        // Muller's Solutions
-  'intellectsoft',            // Intellectsoft
-  'enfinity-global-2',        // Enfinity Global
-  'toloka',                   // Toloka Annotators
-  'unison-consulting-pte-ltd', // Unison Group
-  'amplifi-capital',          // Amplifi Capital
-  'vizrt',                    // Vizrt
-  'cimmyt',                   // CIMMYT
-  'intertek',                 // Intertek
-  'egon-zehnder',             // Egon Zehnder
-  'azeus-convene',            // Azeus Convene
-  'cynet',                    // Cynet Corp
-  'keywords-studios',         // Keywords Studios
-  'gunnebo',                  // Gunnebo Entrance Control
-  'eriez',                    // Eriez
-  'elevation-capital',        // Elevation Capital
-  'covergo',                  // CoverGo
-  'acloud',                   // aCloud
-  '1kosmos',                  // 1Kosmos
-  'genesisortho',             // Genesis Orthopedics & Sports Medicine
-  'nutrition-international',  // Nutrition International
-  'brightrays',               // BrightRays
-  'infystrat',                // InfyStrat
-  'mira-construction-l-dot-l-c-1', // MIRA CONSTRUCTION L.L.C
-  'visit',                    // Visit.org,
+// ─── Pagination & Fetching ────────────────────────────────────────────────
+// The old per-company API (www.workable.com/api/accounts/{slug}) is unreliable
+// — it returns 302s, 404s, and needs proxy workarounds for datacenter IPs.
+//
+// The working API is jobs.workable.com/api/v1/jobs which is a search/aggregator
+// endpoint. We query it with location=India to get ALL Workable India jobs
+// in one go, paginated via nextPageToken. No slugs, no proxy needed.
+// ───────────────────────────────────────────────────────────────────────────
 
-  // ── Discovered via ATS scan (Mar 2026) ──
-  'razorpay',
-  'cred',
-  'meesho',
-  'groww',
-  'phonepe',
-  'swiggy',
-  'zomato',
-  'flipkart',
-  'paytm',
-  'ola',
-  'olacabs',
-  'byjus',
-  'oyo',
-  'oyorooms',
-  'dream11',
-  'delhivery',
-  'nykaa',
-  'udaan',
-  'bharatpe',
-  'slice',
-  'curefit',
-  'cultfit',
+const API_BASE = 'https://jobs.workable.com/api/v1/jobs';
+const PAGE_SIZE = 100;
+const MAX_PAGES = 12; // Safety cap: 100 x 12 = 1200 jobs max per scrape run
+
+// Indian cities for location filtering
+const INDIAN_CITIES = [
+    'bangalore', 'bengaluru', 'mumbai', 'delhi', 'new delhi',
+    'hyderabad', 'pune', 'chennai', 'noida', 'gurgaon', 'gurugram',
+    'kolkata', 'ahmedabad', 'jaipur', 'lucknow', 'chandigarh',
+    'indore', 'nagpur', 'coimbatore', 'kochi', 'cochin',
+    'thiruvananthapuram', 'trivandrum', 'visakhapatnam', 'vizag',
+    'bhubaneswar', 'mangalore', 'mysore', 'mysuru', 'vadodara',
+    'surat', 'patna', 'ranchi', 'guwahati', 'bhopal',
 ];
 
-const indianCities = [
-  'bangalore', 'bengaluru', 'mumbai', 'delhi', 'new delhi',
-  'hyderabad', 'pune', 'chennai', 'noida', 'gurgaon', 'gurugram',
-  'kolkata', 'ahmedabad', 'jaipur', 'lucknow', 'chandigarh',
-  'indore', 'nagpur', 'coimbatore', 'kochi', 'cochin',
-  'thiruvananthapuram', 'trivandrum', 'visakhapatnam', 'vizag',
-  'bhubaneswar', 'mangalore', 'mysore', 'mysuru', 'vadodara',
-  'surat', 'patna', 'ranchi', 'guwahati', 'bhopal',
-];
+function hasIndiaLocation(job) {
+    // Check country name
+    const country = (job.location?.countryName || '').toLowerCase();
+    if (country === 'india') return true;
 
-const REQUEST_TIMEOUT_MS = 30000;
+    // Check city against known Indian cities
+    const city = (job.location?.city || '').toLowerCase();
+    if (INDIAN_CITIES.some(c => city.includes(c))) return true;
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function randomDelay() {
-  return 3000 + Math.floor(Math.random() * 4000); // 3–7s between companies
-}
-
-async function fetchWorkableCompany(slug) {
-  const targetUrl = `https://www.workable.com/api/accounts/${slug}?details=true`;
-  return fetchJsonWithTimeout(targetUrl, 'public API');
-}
-
-function buildProxyUrl(targetUrl) {
-  const proxyBase = process.env.WORKABLE_PROXY_URL;
-  if (!proxyBase) return null;
-  const separator = proxyBase.includes('?') ? '&' : '?';
-  return `${proxyBase}${separator}url=${encodeURIComponent(targetUrl)}`;
-}
-
-async function fetchJsonFromUrl(url) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  try {
-    return await fetch(url, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json, text/plain, */*',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      },
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-async function parseJsonResult(response, sourceLabel) {
-  if (response.status === 404) {
-    return { kind: 'not-found' };
-  }
-
-  if (!response.ok) {
-    return { kind: 'failed', error: `${sourceLabel}: HTTP ${response.status}` };
-  }
-
-  try {
-    const data = await response.json();
-    return { kind: 'ok', data };
-  } catch {
-    return { kind: 'failed', error: `${sourceLabel}: Invalid JSON response` };
-  }
-}
-
-async function fetchJsonWithTimeout(targetUrl, sourceLabel) {
-  const proxyUrl = buildProxyUrl(targetUrl);
-
-  if (proxyUrl) {
-    try {
-      const proxiedResponse = await fetchJsonFromUrl(proxyUrl);
-      if (proxiedResponse.status === 403) {
-        const directResponse = await fetchJsonFromUrl(targetUrl);
-        return parseJsonResult(directResponse, `${sourceLabel} (direct fallback)`);
-      }
-      return parseJsonResult(proxiedResponse, `${sourceLabel} (proxy)`);
-    } catch (error) {
-      return { kind: 'failed', error: `${sourceLabel} (proxy): ${error.message}` };
-    }
-  }
-
-  try {
-    const directResponse = await fetchJsonFromUrl(targetUrl);
-    return parseJsonResult(directResponse, `${sourceLabel} (direct)`);
-  } catch (error) {
-    return { kind: 'failed', error: `${sourceLabel} (direct): ${error.message}` };
-  }
-}
-
-async function fetchWorkableWidget(slug) {
-  const targetUrl = `https://apply.workable.com/api/v1/widget/accounts/${slug}`;
-  return fetchJsonWithTimeout(targetUrl, 'widget API');
-}
-
-function normalizeWidgetResponse(slug, widgetData) {
-  const companyName = typeof widgetData?.name === 'string' && widgetData.name.trim()
-    ? widgetData.name.trim()
-    : slug;
-
-  const companyDescription = typeof widgetData?.description === 'string' && widgetData.description.trim()
-    ? widgetData.description.trim()
-    : '';
-
-  const rawJobs = Array.isArray(widgetData?.jobs) ? widgetData.jobs : [];
-
-  const jobs = rawJobs.map(rawJob => {
-    const firstLocation = Array.isArray(rawJob.locations) && rawJob.locations.length > 0
-      ? rawJob.locations[0]
-      : {};
-
-    const title = rawJob.title || 'Untitled Role';
-    const fallbackDescription = companyDescription
-      ? `<div>${companyDescription}</div>`
-      : `<p>${title}</p>`;
-
-    return {
-      ...rawJob,
-      title,
-      shortcode: rawJob.shortcode || rawJob.code || '',
-      country: rawJob.country || firstLocation.country || '',
-      city: rawJob.city || firstLocation.city || '',
-      state: rawJob.state || firstLocation.region || '',
-      department: rawJob.department || rawJob.function || '',
-      telecommuting: Boolean(rawJob.telecommuting),
-      workplace_type: rawJob.workplace_type || (rawJob.telecommuting ? 'remote' : null),
-      employment_type: rawJob.employment_type || null,
-      published_on: rawJob.published_on || rawJob.created_at || null,
-      created_at: rawJob.created_at || rawJob.published_on || null,
-      url: rawJob.url || rawJob.shortlink || rawJob.application_url || '',
-      shortlink: rawJob.shortlink || rawJob.url || rawJob.application_url || '',
-      application_url: rawJob.application_url
-        || (rawJob.url ? `${rawJob.url.replace(/\/$/, '')}/apply` : '')
-        || rawJob.shortlink
-        || '',
-      description: typeof rawJob.description === 'string' && rawJob.description.trim()
-        ? rawJob.description
-        : fallbackDescription,
-      education: rawJob.education || null,
-      experience: rawJob.experience || null,
-    };
-  });
-
-  return {
-    name: companyName,
-    jobs,
-  };
-}
-
-export const workableConfig = {
-  siteName: 'Workable Jobs',
-
-  _allJobsQueue: [],
-  _initialized: false,
-
-  async initialize() {
-    if (this._initialized) return;
-
-    const via = process.env.WORKABLE_PROXY_URL ? 'Cloudflare Worker' : 'direct';
-    console.log(`[Workable] Fetching jobs from ${companySlugs.length} companies via ${via}...`);
-
-    let successCount = 0;
-    let notFoundCount = 0;
-    let errorCount = 0;
-    let widgetFallbackCount = 0;
-
-    for (const slug of companySlugs) {
-      try {
-        let result = await fetchWorkableCompany(slug);
-
-        if (result.kind === 'ok') {
-          const publicJobs = Array.isArray(result.data.jobs) ? result.data.jobs : [];
-          if (publicJobs.length === 0) {
-            console.log(`[Workable]    ${slug}: public API returned 0 jobs, trying widget API...`);
-            const widgetResult = await fetchWorkableWidget(slug);
-
-            if (widgetResult.kind === 'ok') {
-              const normalized = normalizeWidgetResponse(slug, widgetResult.data);
-              result = {
-                kind: 'ok',
-                data: normalized,
-                source: 'widget',
-              };
-              widgetFallbackCount++;
-            } else if (widgetResult.kind !== 'not-found') {
-              console.warn(`[Workable] ⚠️  ${slug}: widget fallback failed (${widgetResult.error})`);
-            }
-          }
+    // Check locations array (full location strings like "Bangalore, Karnataka, India")
+    if (Array.isArray(job.locations)) {
+        for (const loc of job.locations) {
+            const lower = loc.toLowerCase();
+            if (lower.includes('india') || INDIAN_CITIES.some(c => lower.includes(c))) return true;
         }
-
-        if (result.kind === 'not-found') {
-          notFoundCount++;
-          console.warn(`[Workable] ⚠️  ${slug}: 404 — skipping`);
-          await sleep(randomDelay());
-          continue;
-        }
-
-        if (result.kind !== 'ok') {
-          errorCount++;
-          console.error(`[Workable] ❌ ${slug}: ${result.error} — skipping`);
-          await sleep(randomDelay());
-          continue;
-        }
-
-        const data = result.data;
-        const allJobs = Array.isArray(data.jobs) ? data.jobs : [];
-        const companyName = data.name || slug;
-        const sourceLabel = result.source === 'widget' ? 'widget' : 'public';
-
-        const indiaJobs = allJobs
-          .filter(job => this.hasIndiaLocation(job))
-          .map(job => ({ ...job, _slug: slug, _companyName: companyName }));
-
-        if (indiaJobs.length > 0) {
-          console.log(`[Workable] ✅ ${slug} (${companyName}): ${indiaJobs.length} India jobs (${allJobs.length} total, ${sourceLabel})`);
-          this._allJobsQueue.push(...indiaJobs);
-          successCount++;
-        } else {
-          console.log(`[Workable]    ${slug} (${companyName}): ${allJobs.length} jobs, 0 in India (${sourceLabel})`);
-        }
-      } catch (error) {
-        errorCount++;
-        console.error(`[Workable] ❌ ${slug}: ${error.message} — skipping`);
-      }
-
-      await sleep(randomDelay());
-    }
-
-    console.log(`[Workable] ✅ Summary: ${successCount} with India jobs | ${notFoundCount} not on Workable | ${errorCount} errors`);
-    console.log(`[Workable] 🔁 Widget fallback used: ${widgetFallbackCount} companies`);
-    console.log(`[Workable] 📊 Total India jobs queued: ${this._allJobsQueue.length}`);
-    this._initialized = true;
-  },
-
-  hasIndiaLocation(job) {
-    if (job.country) {
-      if (job.country === 'India') return true;
-      if (job.country.toLowerCase() !== 'india') return false;
-    }
-
-    if (job.city) {
-      const cityLower = job.city.toLowerCase();
-      if (indianCities.some(c => cityLower.includes(c))) return true;
     }
 
     return false;
-  },
+}
 
-  async fetchPage(offset, limit) {
-    if (!this._initialized) {
-      await this.initialize();
-    }
-    const jobs = this._allJobsQueue.slice(offset, offset + limit);
-    return { jobs, total: this._allJobsQueue.length };
-  },
+export const workableConfig = {
+    siteName: 'Workable Jobs',
+    limit: 20,
+    _allJobsQueue: [],
+    _initialized: false,
+    needsDescriptionScraping: false, // description comes from the API response
 
-  getJobs(data) {
-    return data.jobs || [];
-  },
+    // ─── Pre-fetch phase: paginate the India search API ───────────────────
+    async initialize() {
+        if (this._initialized) return;
 
-  getTotal(data) {
-    return data.total || 0;
-  },
+        this._allJobsQueue = [];
 
-  extractJobID(job) {
-    return `workable_${job._slug}_${job.shortcode}`;
-  },
+        console.log(`[Workable] Fetching India jobs from jobs.workable.com API...`);
 
-  extractJobTitle(job) {
-    return job.title;
-  },
+        let pageToken = null;
+        let totalFetched = 0;
+        let pageCount = 0;
 
-  extractCompany(job) {
-    return job._companyName;
-  },
+        try {
+            do {
+                const params = new URLSearchParams({
+                    location: 'India',
+                    limit: String(PAGE_SIZE),
+                });
+                if (pageToken) params.set('pageToken', pageToken);
 
-  extractLocation(job) {
-    return [job.city, job.state, job.country].filter(Boolean).join(', ');
-  },
+                const url = `${API_BASE}?${params.toString()}`;
 
-  extractDescription(job) {
-    return job.description || '';
-  },
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 20000);
 
-  extractURL(job) {
-    return job.application_url || job.shortlink || job.url;
-  },
+                const res = await fetch(url, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                        'Accept': 'application/json',
+                    },
+                    signal: controller.signal,
+                });
+                clearTimeout(timeout);
 
-  extractPostedDate(job) {
-    return job.published_on ? new Date(job.published_on) : null;
-  },
+                if (!res.ok) {
+                    console.log(`[Workable] ⚠️ API returned HTTP ${res.status} — stopping pagination`);
+                    break;
+                }
+
+                const data = await res.json();
+                const jobs = data.jobs || [];
+
+                if (jobs.length === 0) break;
+
+                // Double-check India location (the API's location filter is fuzzy)
+                const indiaJobs = jobs.filter(hasIndiaLocation);
+                this._allJobsQueue.push(...indiaJobs);
+                totalFetched += indiaJobs.length;
+                pageCount++;
+                pageToken = data.nextPageToken || null;
+
+                console.log(`[Workable] Page ${pageCount}: ${indiaJobs.length} India jobs (${jobs.length} raw, ${totalFetched} total so far)`);
+
+                // Polite delay between pages
+                if (pageToken) {
+                    await new Promise(r => setTimeout(r, 500));
+                }
+
+            } while (pageToken && pageCount < MAX_PAGES);
+
+        } catch (err) {
+            console.log(`[Workable] ⚠️ Fetch error: ${err.message}`);
+        }
+
+        console.log(`[Workable] ✅ Done: ${totalFetched} India jobs queued from ${pageCount} page(s)`);
+
+        // Log jobs grouped by company
+        if (this._allJobsQueue.length > 0) {
+            const companyCounts = {};
+            for (const job of this._allJobsQueue) {
+                const comp = job.company?.title || 'Unknown';
+                companyCounts[comp] = (companyCounts[comp] || 0) + 1;
+            }
+
+            const companies = Object.entries(companyCounts).sort((a, b) => b[1] - a[1]);
+            for (let i = 0; i < Math.min(companies.length, 20); i++) {
+                console.log(`[Workable] ✅ ${companies[i][0]}: ${companies[i][1]} jobs in India`);
+            }
+            if (companies.length > 20) {
+                console.log(`[Workable] ... and ${companies.length - 20} more companies.`);
+            }
+        }
+
+        this._initialized = true;
+    },
+
+    // ─── Called by scraperEngine ───────────────────────────────────────────
+    async fetchPage(offset, limit) {
+        if (!this._initialized) await this.initialize();
+        const jobs = this._allJobsQueue.slice(offset, offset + limit);
+        return { jobs, total: this._allJobsQueue.length };
+    },
+
+    getJobs(data) { return data.jobs || []; },
+    getTotal(data) { return data.total || 0; },
+
+    // ─── Field extractors ─────────────────────────────────────────────────
+    // The jobs.workable.com API returns objects with this shape:
+    //   { id, title, state, description, employmentType, benefitsSection,
+    //     requirementsSection, url, language, locations, location { city,
+    //     subregion, countryName }, created, updated, company { id, title,
+    //     website, image, description, url }, workplace, department }
+
+    extractJobID(job) {
+        return `workable_${job.id}`;
+    },
+
+    extractJobTitle(job) {
+        return job.title || '';
+    },
+
+    extractCompany(job) {
+        return job.company?.title || '';
+    },
+
+    extractLocation(job) {
+        const parts = [
+            job.location?.city,
+            job.location?.countryName,
+        ].filter(Boolean);
+        return parts.join(', ') || 'India';
+    },
+
+    extractAllLocations(job) {
+        if (Array.isArray(job.locations) && job.locations.length > 0) {
+            return normalizeArray(job.locations);
+        }
+        const loc = [job.location?.city, job.location?.countryName].filter(Boolean).join(', ');
+        return normalizeArray([loc]);
+    },
+
+    extractDepartment(job) {
+        return job.department || null;
+    },
+
+    extractDescription(job) {
+        const parts = [
+            job.description || '',
+            job.requirementsSection || '',
+            job.benefitsSection || '',
+        ].filter(Boolean);
+        return StripHtml(parts.join('\n'));
+    },
+
+    extractDescriptionHtml(job) {
+        const parts = [
+            job.description || '',
+            job.requirementsSection || '',
+            job.benefitsSection || '',
+        ].filter(Boolean);
+        return SanitizeHtml(parts.join(''));
+    },
+
+    extractURL(job) {
+        return job.url || null;
+    },
+
+    extractDirectApplyURL(job) {
+        return job.url || null;
+    },
+
+    extractPostedDate(job) {
+        return job.created ? new Date(job.created) : null;
+    },
+
+    extractCountry(job) {
+        const country = job.location?.countryName;
+        if (!country) return null;
+        const lower = country.trim().toLowerCase();
+        if (lower === 'india') return 'IN';
+        return country;
+    },
+
+    extractWorkplaceType(job) {
+        return normalizeWorkplaceType(job.workplace);
+    },
+
+    extractIsRemote(job) {
+        return String(job.workplace || '').toLowerCase() === 'remote';
+    },
+
+    extractEmploymentType(job) {
+        return normalizeEmploymentType(job.employmentType);
+    },
+
+    extractExperienceLevel(job) {
+        // The search API doesn't have an experience field — let processor derive from title
+        return null;
+    },
+
+    extractOffice(job) {
+        return job.location?.city || null;
+    },
+
+    extractATSPlatform() {
+        return 'workable';
+    },
+
+    extractTags(job) {
+        return normalizeArray([
+            job.department,
+            job.employmentType,
+            job.workplace ? `Workplace: ${job.workplace}` : null,
+        ]);
+    },
+
+    // No salary fields in the Workable public search API
+    extractSalaryCurrency() { return null; },
+    extractSalaryMin() { return null; },
+    extractSalaryMax() { return null; },
+    extractSalaryInterval() { return null; },
+
+    // No team field in Workable
+    extractTeam() { return null; },
 };

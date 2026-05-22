@@ -8,6 +8,8 @@ import { leverConfig } from './CompanyConfig/leverConfig.js';
 import { workableConfig } from './CompanyConfig/workableConfig.js';
 import { recruiteeConfig } from './CompanyConfig/recruiteeConfig.js';
 import { workdayConfig } from './CompanyConfig/workdayConfig.js';
+import { personioConfig } from './CompanyConfig/personioConfig.js';
+import { smartRecruitersConfig } from './CompanyConfig/smartRecruitersConfig.js';
 
 export const SITES_CONFIG = [
   greenhouseConfig,
@@ -16,4 +18,6 @@ export const SITES_CONFIG = [
   workableConfig,
   recruiteeConfig,
   workdayConfig,
+  personioConfig,
+  smartRecruitersConfig,
 ];

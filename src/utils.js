@@ -8,6 +8,24 @@ export function StripHtml(html) {
     return decodedHtml.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Sanitize HTML: strip dangerous tags (script, iframe, style, object, embed)
+ * but keep safe formatting tags (p, h1-h6, ul, ol, li, strong, em, br, a, div, span, table, tr, td, th).
+ */
+export function SanitizeHtml(html) {
+    if (!html || typeof html !== 'string') return '';
+    return html
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+        .replace(/<object[\s\S]*?<\/object>/gi, '')
+        .replace(/<embed[\s\S]*?\/?>/gi, '')
+        .replace(/<noscript[\s\S]*?<\/noscript>/gi, '')
+        .replace(/\s*on\w+\s*=\s*"[^"]*"/gi, '')
+        .replace(/\s*on\w+\s*=\s*'[^']*'/gi, '')
+        .trim();
+}
+
 // Banned Roles (Noise Filter) - Keep this strict
 export const BANNED_ROLES = [
     "working student", "student assistant",
