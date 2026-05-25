@@ -10,6 +10,7 @@ import {
     getCompanyIntel,
     getSimilarJobs,
     getMarketPulse,
+    getHiringLeaderboard,
 } from '../Db/databaseManager.js';
 
 export const jobsApiRouter = Router();
@@ -94,6 +95,18 @@ jobsApiRouter.get('/similar/:jobId', async (req, res) => {
         res.status(200).json(jobs);
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch similar jobs' });
+    }
+});
+
+// GET /hiring-leaderboard — public "Who's Actually Hiring" leaderboard (1-hour cache)
+jobsApiRouter.get('/hiring-leaderboard', async (req, res) => {
+    try {
+        const data = await getHiringLeaderboard();
+        res.set('Cache-Control', 'public, max-age=1800, s-maxage=3600');
+        res.status(200).json(data);
+    } catch (error) {
+        console.error('[GET /hiring-leaderboard]', error);
+        res.status(500).json({ error: 'Failed to fetch hiring leaderboard' });
     }
 });
 

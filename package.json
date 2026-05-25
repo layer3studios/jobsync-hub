@@ -27,6 +27,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "express-validator": "^7.3.1",
+    "fast-xml-parser": "^5.8.0",
     "google-auth-library": "^10.6.2",
     "groq-sdk": "^0.37.0",
     "he": "^1.2.0",

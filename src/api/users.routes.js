@@ -1,7 +1,4 @@
 import { Router } from 'express';
-import { touchVisit, getAppliedJobs, getAppliedJobDetails, addAppliedJob, removeAppliedJob, updateSkills, getComeBackTo, upsertComeBackTo, removeComeBackTo, setDailyGoal } from '../models/userModel.js';
-import { connectToDb } from '../Db/databaseManager.js';
-import { ObjectId } from 'mongodb';
 
 const router = Router();
 

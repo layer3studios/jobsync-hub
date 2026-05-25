@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-export const GROQ_API_KEY = process.env.GEMINI_API_KEY; // Get this from aistudio.google.com
+export const GROQ_API_KEY = process.env.GEMINI_API_KEY; // NOTE: env var name mismatch is intentional — production uses GEMINI_API_KEY
 export const MONGO_URI = process.env.MONGO_URI;
 
 export const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;

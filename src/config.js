@@ -1,7 +1,4 @@
 // config.js
-import { StripHtml, COMMON_KEYWORDS } from './utils.js';
-import fetch from 'node-fetch'; // fetch is needed for the getDetails function
-import { AbortController } from 'abort-controller';
 import { greenhouseConfig } from './CompanyConfig/greenhouseConfig.js';
 import { ashbyConfig } from './CompanyConfig/ashbyConfig.js';
 import { leverConfig } from './CompanyConfig/leverConfig.js';

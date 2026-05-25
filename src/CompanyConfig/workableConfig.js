@@ -13,8 +13,8 @@ import { normalizeArray } from '../core/jobExtractor.js';
 // ───────────────────────────────────────────────────────────────────────────
 
 const API_BASE = 'https://jobs.workable.com/api/v1/jobs';
-const PAGE_SIZE = 100;
-const MAX_PAGES = 12; // Safety cap: 100 x 12 = 1200 jobs max per scrape run
+const PAGE_SIZE = 40;
+const MAX_PAGES = 20; 
 
 // Indian cities for location filtering
 const INDIAN_CITIES = [
@@ -70,7 +70,7 @@ export const workableConfig = {
             do {
                 const params = new URLSearchParams({
                     location: 'India',
-                    limit: String(PAGE_SIZE),
+                   
                 });
                 if (pageToken) params.set('pageToken', pageToken);
 
