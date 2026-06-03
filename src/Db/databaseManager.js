@@ -1,5 +1,3 @@
-// Barrel re-export — all existing imports from this path continue to work
-export { client, connectToDb } from './connection.js';
-export * from './jobCrud.js';
-export * from './companyQueries.js';
-export * from './analyticsQueries.js';
+// FILE: src/Db/databaseManager.js
+// Backwards-compatible barrel. Prefer `./Db/index.js` in new code.
+export * from './index.js';

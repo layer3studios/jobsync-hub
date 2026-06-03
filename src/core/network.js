@@ -1,104 +1,95 @@
+// FILE: src/core/network.js
+// Network helpers used by the scraper engine: session init + page fetch.
+
 import fetch from 'node-fetch';
 import { AbortController } from 'abort-controller';
 
-/**
- * ✅ FINAL VERSION: Initializes a session and correctly handles CSRF tokens.
- */
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36';
+const SESSION_INIT_TIMEOUT_MS = 60_000;
+const PAGE_FETCH_TIMEOUT_MS = 30_000;
+
+/** Initialize a session, handling CSRF where required. */
 export async function initializeSession(siteConfig) {
-    const sessionHeaders = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36'
-    };
-    
-    // ✅ Skip session initialization for Greenhouse and Ashby
-    if (siteConfig.siteName === "Greenhouse Jobs" || siteConfig.siteName === "Ashby Jobs") {
-        return sessionHeaders;
+  const headers = { 'User-Agent': USER_AGENT };
+
+  // Greenhouse + Ashby use static public APIs — no session needed.
+  if (siteConfig.siteName === 'Greenhouse Jobs' || siteConfig.siteName === 'Ashby Jobs') {
+    return headers;
+  }
+  if (!siteConfig.needsSession) return headers;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SESSION_INIT_TIMEOUT_MS);
+  try {
+    console.log(`[${siteConfig.siteName}] initializing session`);
+    const res = await fetch(siteConfig.baseUrl, { headers, signal: controller.signal });
+    const cookies = res.headers.raw()['set-cookie'];
+    if (cookies) {
+      headers['Cookie'] = cookies.join('; ');
+      const xsrf = cookies.find(c => c.startsWith('XSRF-TOKEN='));
+      if (xsrf) {
+        const token = xsrf.split(';')[0].split('=')[1];
+        headers['X-XSRF-TOKEN'] = decodeURIComponent(token);
+      }
     }
-    
-    if (!siteConfig.needsSession) return sessionHeaders;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-
-    try {
-        console.log(`[${siteConfig.siteName}] Initializing session...`);
-        const res = await fetch(siteConfig.baseUrl, { headers: sessionHeaders, signal: controller.signal });
-        
-        const cookies = res.headers.raw()['set-cookie'];
-        if (cookies) {
-            sessionHeaders['Cookie'] = cookies.join('; ');
-
-            const xsrfCookie = cookies.find(c => c.startsWith('XSRF-TOKEN='));
-            if (xsrfCookie) {
-                const token = xsrfCookie.split(';')[0].split('=')[1];
-                sessionHeaders['X-XSRF-TOKEN'] = decodeURIComponent(token);
-            }
-        }
-    } catch (error) {
-        console.error(`[${siteConfig.siteName}] FAILED to initialize session: ${error.message}. Aborting.`);
-        throw error;
-    } finally {
-        clearTimeout(timeoutId);
-    }
-    return sessionHeaders;
+  } catch (err) {
+    console.error(`[${siteConfig.siteName}] session init failed: ${err.message}`);
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+  return headers;
 }
 
 /**
- * Fetches a single page of job listings from an API.
+ * Fetch a single page of jobs from a site's API.
+ * Returns null on 404 (skippable error, e.g. invalid Lever slug).
+ * Throws on other errors.
  */
 export async function fetchJobsPage(siteConfig, offset, limit, sessionHeaders) {
-    // ✅ Special handling for configs with custom fetchPage method
-    if (typeof siteConfig.fetchPage === 'function') {
-        return await siteConfig.fetchPage(offset, limit);
+  // Config can provide its own custom fetch flow.
+  if (typeof siteConfig.fetchPage === 'function') {
+    return siteConfig.fetchPage(offset, limit);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PAGE_FETCH_TIMEOUT_MS);
+
+  try {
+    const opts = {
+      method: siteConfig.method,
+      headers: { ...sessionHeaders, ...(siteConfig.customHeaders || {}) },
+      signal: controller.signal,
+    };
+
+    let url = siteConfig.apiUrl;
+
+    if (siteConfig.method === 'POST') {
+      const body = siteConfig.getBody(offset, limit, siteConfig.filterKeywords);
+      if (typeof siteConfig.buildPageUrl === 'function') {
+        url = siteConfig.buildPageUrl(offset, limit);
+      }
+      if (siteConfig.bodyType === 'form') {
+        opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        opts.body = new URLSearchParams(body).toString();
+      } else {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(body);
+      }
+    } else if (siteConfig.method === 'GET' && typeof siteConfig.buildPageUrl === 'function') {
+      url = siteConfig.buildPageUrl(offset, limit, siteConfig.filterKeywords);
     }
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    try {
-        const fetchOptions = {
-            method: siteConfig.method,
-            headers: {
-                ...sessionHeaders,
-                ...(siteConfig.customHeaders || {})
-            },
-            signal: controller.signal
-        };
+    const res = await fetch(url, opts);
 
-        let currentApiUrl = siteConfig.apiUrl;
-
-        if (siteConfig.method === 'POST') {
-            const bodyData = siteConfig.getBody(offset, limit, siteConfig.filterKeywords);
-            
-            if (typeof siteConfig.buildPageUrl === 'function') {
-                currentApiUrl = siteConfig.buildPageUrl(offset, limit);
-            }
-
-            if (siteConfig.bodyType === 'form') {
-                fetchOptions.headers['Content-Type'] = 'application/x-www-form-urlencoded';
-                fetchOptions.body = new URLSearchParams(bodyData).toString();
-            } else {
-                fetchOptions.headers['Content-Type'] = 'application/json';
-                fetchOptions.body = JSON.stringify(bodyData);
-            }
-        } else if (siteConfig.method === 'GET') {
-            if (typeof siteConfig.buildPageUrl === 'function') {
-                currentApiUrl = siteConfig.buildPageUrl(offset, limit, siteConfig.filterKeywords);
-            }
-        }
-
-        const res = await fetch(currentApiUrl, fetchOptions);
-
-        // 404 means the resource doesn't exist (e.g. a Lever company slug is invalid).
-        // Return null so the caller can skip this item and continue the loop.
-        if (res.status === 404) {
-            console.warn(`[${siteConfig.siteName}] 404 for URL: ${currentApiUrl} — skipping.`);
-            return null;
-        }
-
-        if (!res.ok) throw new Error(`API error: ${res.status}`);
-        
-        return await res.json();
-    } finally {
-        clearTimeout(timeoutId);
+    if (res.status === 404) {
+      console.warn(`[${siteConfig.siteName}] 404 at ${url} — skipping`);
+      return null;
     }
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
 }

@@ -1,4 +1,6 @@
-// config.js
+// FILE: src/config.js
+// Aggregates per-ATS configs for the scraper engine to iterate.
+
 import { greenhouseConfig } from './CompanyConfig/greenhouseConfig.js';
 import { ashbyConfig } from './CompanyConfig/ashbyConfig.js';
 import { leverConfig } from './CompanyConfig/leverConfig.js';

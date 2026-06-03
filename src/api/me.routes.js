@@ -1,237 +1,130 @@
+// FILE: src/api/me.routes.js
+// All routes here assume req.user.userId is set by the authenticate middleware.
+
 import { Router } from 'express';
 import {
-  getUserById,
-  touchVisit,
-  getAppliedJobs,
-  getAppliedJobDetails,
-  addAppliedJob,
-  removeAppliedJob,
+  getUserById, touchVisit,
+  getAppliedJobs, getAppliedJobDetails, addAppliedJob, removeAppliedJob, updateAppliedJobStage,
   updateSkills,
-  getComeBackTo,
-  upsertComeBackTo,
-  removeComeBackTo,
+  getComeBackTo, upsertComeBackTo, removeComeBackTo,
   setDailyGoal,
-  updateAppliedJobStage,
-  getDismissedJobs,
-  addDismissedJob,
-  removeDismissedJob,
-} from '../models/userModel.js';
+  getDismissedJobs, addDismissedJob, removeDismissedJob,
+} from '../models/user/index.js';
+import { findJobById } from '../Db/jobs/queries.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
+import { HttpError } from '../middleware/errorHandler.js';
 
+const VALID_STAGES = ['applied', 'screening', 'interview', 'offer', 'accepted', 'rejected', 'ghosted'];
 const router = Router();
 
-// All routes assume req.user.userId is set by auth middleware
+// GET /  — profile + dismissed IDs for initial load
+router.get('/', asyncHandler(async (req, res) => {
+  const [user, dismissed] = await Promise.all([
+    getUserById(req.user.userId),
+    getDismissedJobs(req.user.userId),
+  ]);
+  if (!user) throw new HttpError(404, 'User not found');
+  res.json({
+    name: user.name,
+    email: user.email,
+    picture: user.picture,
+    slug: user.slug,
+    skills: Array.isArray(user.skills) ? user.skills : [],
+    dailyGoal: typeof user.dailyGoal === 'number' ? user.dailyGoal : 5,
+    appliedCount: typeof user.appliedCount === 'number' ? user.appliedCount : 0,
+    dismissedJobIds: Array.isArray(dismissed) ? dismissed : [],
+  });
+}));
 
-// GET / — returns user profile + dismissed IDs for initial load
-router.get('/', async (req, res) => {
-  try {
-    const [user, dismissedJobs] = await Promise.all([
-      getUserById(req.user.userId),
-      getDismissedJobs(req.user.userId),
-    ]);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json({
-      name: user.name,
-      email: user.email,
-      picture: user.picture,
-      slug: user.slug,
-      skills: Array.isArray(user.skills) ? user.skills : [],
-      dailyGoal: typeof user.dailyGoal === 'number' ? user.dailyGoal : 5,
-      appliedCount: typeof user.appliedCount === 'number' ? user.appliedCount : 0,
-      dismissedJobIds: Array.isArray(dismissedJobs) ? dismissedJobs : [],
-    });
-  } catch (err) {
-    console.error('[me] GET / error:', err);
-    res.status(500).json({ error: 'Failed to load user data' });
-  }
-});
+// PATCH /visit
+router.patch('/visit', asyncHandler(async (req, res) => {
+  const result = await touchVisit(req.user.userId);
+  if (!result) throw new HttpError(404, 'User not found');
+  res.json(result);
+}));
 
-router.patch('/visit', async (req, res) => {
-  try {
-    const result = await touchVisit(req.user.userId);
-    if (!result) return res.status(404).json({ error: 'User not found' });
-    res.json(result);
-  } catch (err) {
-    console.error('[me] PATCH /visit error:', err);
-    res.status(500).json({ error: 'Failed to update visit' });
-  }
-});
+// ─── Applied ────────────────────────────────────────────────────────
+router.get('/applied', asyncHandler(async (req, res) => {
+  res.json(await getAppliedJobs(req.user.userId));
+}));
 
-router.get('/applied', async (req, res) => {
-  try {
-    const jobs = await getAppliedJobs(req.user.userId);
-    res.json(Array.isArray(jobs) ? jobs : []);
-  } catch (err) {
-    console.error('[me] GET /applied error:', err);
-    res.status(500).json({ error: 'Failed to fetch applied jobs' });
-  }
-});
+router.get('/applied/details', asyncHandler(async (req, res) => {
+  res.json(await getAppliedJobDetails(req.user.userId));
+}));
 
-router.get('/applied/details', async (req, res) => {
+router.post('/applied/:jobId', asyncHandler(async (req, res) => {
+  // Snapshot the job for resilience: if the listing is later deleted, the
+  // user can still see what they applied to.
+  let snapshot = {};
   try {
-    const jobs = await getAppliedJobDetails(req.user.userId);
-    res.json(Array.isArray(jobs) ? jobs : []);
-  } catch (err) {
-    console.error('[me] GET /applied/details error:', err);
-    res.status(500).json({ error: 'Failed to fetch applied job details' });
-  }
-});
-
-router.post('/applied/:jobId', async (req, res) => {
-  try {
-    const { findJobById } = await import('../Db/databaseManager.js');
-    let jobSnapshot = {};
-    try {
-      const job = await findJobById(req.params.jobId);
-      if (job) {
-        jobSnapshot = {
-          jobTitle: job.JobTitle || null,
-          company: job.Company || null,
-          applicationURL: job.DirectApplyURL || job.ApplicationURL || null,
-          location: job.Location || null,
-          department: job.Department || null,
-        };
-      }
-    } catch {
-      // If job fetch fails, fallback to empty snapshot (snapshot is optional)
-      jobSnapshot = {};
+    const job = await findJobById(req.params.jobId);
+    if (job) {
+      snapshot = {
+        jobTitle: job.JobTitle || null,
+        company: job.Company || null,
+        applicationURL: job.DirectApplyURL || job.ApplicationURL || null,
+        location: job.Location || null,
+        department: job.Department || null,
+      };
     }
-    const jobs = await addAppliedJob(req.user.userId, req.params.jobId, jobSnapshot);
-    res.json(Array.isArray(jobs) ? jobs : []);
-  } catch (err) {
-    console.error('[me] POST /applied error:', err);
-    res.status(500).json({ error: 'Failed to mark job as applied' });
-  }
-});
+  } catch { /* snapshot is optional */ }
+  res.json(await addAppliedJob(req.user.userId, req.params.jobId, snapshot));
+}));
 
-router.delete('/applied/:jobId', async (req, res) => {
-  try {
-    const jobs = await removeAppliedJob(req.user.userId, req.params.jobId);
-    res.json(Array.isArray(jobs) ? jobs : []);
-  } catch (err) {
-    console.error('[me] DELETE /applied error:', err);
-    res.status(500).json({ error: 'Failed to remove applied job' });
-  }
-});
+router.delete('/applied/:jobId', asyncHandler(async (req, res) => {
+  res.json(await removeAppliedJob(req.user.userId, req.params.jobId));
+}));
 
-// PATCH /applied/:jobId/stage — update pipeline stage
-router.patch('/applied/:jobId/stage', async (req, res) => {
-  try {
-    const { stage } = req.body;
-    if (!stage || typeof stage !== 'string') {
-      return res.status(400).json({ error: 'stage is required' });
-    }
-    const validStages = ['applied', 'screening', 'interview', 'offer', 'accepted', 'rejected', 'ghosted'];
-    if (!validStages.includes(stage)) {
-      return res.status(400).json({ error: 'Invalid stage. Must be one of: ' + validStages.join(', ') });
-    }
-    const applied = await updateAppliedJobStage(req.user.userId, req.params.jobId, stage);
-    if (applied === null) {
-      return res.status(404).json({ error: 'User or applied job not found' });
-    }
-    res.json(applied);
-  } catch (err) {
-    console.error('[me] PATCH applied stage error:', err);
-    res.status(500).json({ error: 'Failed to update stage' });
+router.patch('/applied/:jobId/stage', asyncHandler(async (req, res) => {
+  const { stage } = req.body || {};
+  if (!stage || typeof stage !== 'string') throw new HttpError(400, 'stage is required');
+  if (!VALID_STAGES.includes(stage)) {
+    throw new HttpError(400, `Invalid stage. Must be one of: ${VALID_STAGES.join(', ')}`);
   }
-});
+  const applied = await updateAppliedJobStage(req.user.userId, req.params.jobId, stage);
+  if (applied === null) throw new HttpError(404, 'User or applied job not found');
+  res.json(applied);
+}));
 
-router.put('/skills', async (req, res) => {
-  try {
-    const raw = req.body.skills;
-    const skills = Array.isArray(raw) ? raw.filter(s => typeof s === 'string' && s.trim()).map(s => s.trim()).slice(0, 100) : [];
-    const result = await updateSkills(req.user.userId, skills);
-    res.json(Array.isArray(result) ? result : []);
-  } catch (err) {
-    console.error('[me] PUT /skills error:', err);
-    res.status(500).json({ error: 'Failed to update skills' });
-  }
+// ─── Skills ─────────────────────────────────────────────────────────
+const handleSkills = asyncHandler(async (req, res) => {
+  res.json(await updateSkills(req.user.userId, req.body?.skills));
 });
+router.put('/skills', handleSkills);
+router.patch('/skills', handleSkills);
 
-router.patch('/skills', async (req, res) => {
-  try {
-    const raw = req.body.skills;
-    const skills = Array.isArray(raw) ? raw.filter(s => typeof s === 'string' && s.trim()).map(s => s.trim()).slice(0, 100) : [];
-    const result = await updateSkills(req.user.userId, skills);
-    res.json(Array.isArray(result) ? result : []);
-  } catch (err) {
-    console.error('[me] PATCH /skills error:', err);
-    res.status(500).json({ error: 'Failed to update skills' });
-  }
-});
+// ─── Comeback (save for later) ──────────────────────────────────────
+router.get('/comeback', asyncHandler(async (req, res) => {
+  res.json(await getComeBackTo(req.user.userId));
+}));
 
-router.get('/comeback', async (req, res) => {
-  try {
-    const cb = await getComeBackTo(req.user.userId);
-    res.json(Array.isArray(cb) ? cb : []);
-  } catch (err) {
-    console.error('[me] GET /comeback error:', err);
-    res.status(500).json({ error: 'Failed to fetch comeback list' });
-  }
-});
+router.post('/comeback/:jobId', asyncHandler(async (req, res) => {
+  const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 200) : '';
+  res.json(await upsertComeBackTo(req.user.userId, req.params.jobId, note));
+}));
 
-router.post('/comeback/:jobId', async (req, res) => {
-  try {
-    const note = typeof req.body.note === 'string' ? req.body.note.slice(0, 200) : '';
-    const cb = await upsertComeBackTo(req.user.userId, req.params.jobId, note);
-    res.json(Array.isArray(cb) ? cb : []);
-  } catch (err) {
-    console.error('[me] POST /comeback error:', err);
-    res.status(500).json({ error: 'Failed to save comeback' });
-  }
-});
+router.delete('/comeback/:jobId', asyncHandler(async (req, res) => {
+  res.json(await removeComeBackTo(req.user.userId, req.params.jobId));
+}));
 
-router.delete('/comeback/:jobId', async (req, res) => {
-  try {
-    const cb = await removeComeBackTo(req.user.userId, req.params.jobId);
-    res.json(Array.isArray(cb) ? cb : []);
-  } catch (err) {
-    console.error('[me] DELETE /comeback error:', err);
-    res.status(500).json({ error: 'Failed to remove comeback' });
-  }
-});
+// ─── Daily goal ─────────────────────────────────────────────────────
+router.patch('/goal', asyncHandler(async (req, res) => {
+  const goal = await setDailyGoal(req.user.userId, req.body?.goal);
+  if (goal === null) throw new HttpError(404, 'User not found');
+  res.json({ dailyGoal: goal });
+}));
 
-router.patch('/goal', async (req, res) => {
-  try {
-    const goal = await setDailyGoal(req.user.userId, req.body.goal);
-    if (goal === null) return res.status(404).json({ error: 'User not found' });
-    res.json({ dailyGoal: goal });
-  } catch (err) {
-    console.error('[me] PATCH /goal error:', err);
-    res.status(500).json({ error: 'Failed to update daily goal' });
-  }
-});
+// ─── Dismissed ──────────────────────────────────────────────────────
+router.get('/dismissed', asyncHandler(async (req, res) => {
+  res.json(await getDismissedJobs(req.user.userId));
+}));
 
-// GET /dismissed — return the user's dismissed job IDs
-router.get('/dismissed', async (req, res) => {
-  try {
-    const ids = await getDismissedJobs(req.user.userId);
-    res.json(Array.isArray(ids) ? ids : []);
-  } catch (err) {
-    console.error('[me] GET /dismissed error:', err);
-    res.status(500).json({ error: 'Failed to fetch dismissed jobs' });
-  }
-});
+router.post('/dismissed/:jobId', asyncHandler(async (req, res) => {
+  res.json(await addDismissedJob(req.user.userId, req.params.jobId));
+}));
 
-// POST /dismissed/:jobId — dismiss a job
-router.post('/dismissed/:jobId', async (req, res) => {
-  try {
-    const ids = await addDismissedJob(req.user.userId, req.params.jobId);
-    res.json(Array.isArray(ids) ? ids : []);
-  } catch (err) {
-    console.error('[me] POST /dismissed error:', err);
-    res.status(500).json({ error: 'Failed to dismiss job' });
-  }
-});
-
-// DELETE /dismissed/:jobId — undo a dismiss
-router.delete('/dismissed/:jobId', async (req, res) => {
-  try {
-    const ids = await removeDismissedJob(req.user.userId, req.params.jobId);
-    res.json(Array.isArray(ids) ? ids : []);
-  } catch (err) {
-    console.error('[me] DELETE /dismissed error:', err);
-    res.status(500).json({ error: 'Failed to undo dismiss' });
-  }
-});
+router.delete('/dismissed/:jobId', asyncHandler(async (req, res) => {
+  res.json(await removeDismissedJob(req.user.userId, req.params.jobId));
+}));
 
 export default router;
