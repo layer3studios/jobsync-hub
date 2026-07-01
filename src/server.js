@@ -42,6 +42,12 @@ import employerPostingsRouter from './api/employer/employer-postings-routes.js';
 import dpdpRouter from './api/dpdp/dpdp-routes.js';
 import seekerResumeRouter from './api/seeker/seeker-resume-routes.js';
 import seekerProfileRouter from './api/seeker/seeker-profile-routes.js';
+import publicApplyRouter from './api/public/public-apply-routes.js';
+import {
+  ensureContactIndexes, ensureApplicationIndexes,
+  ensureStageChangeIndexes, ensureResumeFileIndexes,
+} from './models/public/index.js';
+import { ensureResumeDirectory } from './services/public/resume-storage-service.js';
 
 import { requireSeeker } from './middleware/require-seeker-middleware.js';
 import { requireConsentForPurpose } from './middleware/require-consent-middleware.js';
@@ -72,6 +78,7 @@ app.use('/api/employer/auth', createEmployerAuthRouter());
 app.use('/api/employer/company', requireEmployer, employerCompanyRouter);
 app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerPostingsRouter);
 app.use('/api/dpdp', dpdpRouter); // per-route guards (D9) — /notice-version is public
+app.use('/api/public', publicApplyRouter); // unauthenticated candidate apply pages
 
 // ─── 404 + central error handler (must be last) ───────────────────
 app.use(notFound);
@@ -92,6 +99,11 @@ const server = app.listen(PORT, async () => {
     await ensureConsentIndexes();
     await ensureAuditLogIndexes();
     await ensureRightsRequestIndexes();
+    await ensureContactIndexes();
+    await ensureApplicationIndexes();
+    await ensureStageChangeIndexes();
+    await ensureResumeFileIndexes();
+    ensureResumeDirectory();
 
     // Gemma JD extraction is optional — the server boots fine without keys.
     if (GEMMA_API_KEYS) {

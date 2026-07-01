@@ -3,3 +3,5 @@ package-lock.json
 .env
 
 deploy.ps1
+# Uploaded resume files (local-disk MVP storage)
+data/resumes/

@@ -112,6 +112,23 @@ export async function getPostingForCompany(companyId, postingId) {
   return collection.findOne({ _id: postingOid, source: NATIVE, companyId: companyOid });
 }
 
+/** Fetch an ACTIVE native posting by slug within a company (public apply, R7). */
+export async function getActivePostingBySlugForCompany(companyId, slug) {
+  const companyOid = toOid(companyId);
+  if (!companyOid || typeof slug !== 'string' || !slug) return null;
+  const collection = await postingsCol();
+  return collection.findOne({ companyId: companyOid, slug, source: NATIVE, status: 'active' });
+}
+
+/** List a company's ACTIVE native postings for the public company page. */
+export async function listActivePostingsForCompany(companyId) {
+  const companyOid = toOid(companyId);
+  if (!companyOid) return [];
+  const collection = await postingsCol();
+  return collection.find({ companyId: companyOid, source: NATIVE, status: 'active' })
+    .sort({ postedAt: -1 }).toArray();
+}
+
 /**
  * $set only the explicit patch keys. When status transitions to 'active' and
  * postedAt is still null, stamp postedAt once (R4). Returns null on a miss.

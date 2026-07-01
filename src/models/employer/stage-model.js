@@ -49,6 +49,14 @@ export async function listStagesForCompany(companyId) {
   return collection.find({ companyId: oid }).sort({ order: 1 }).toArray();
 }
 
+/** The company's default (initial) stage — where new applications land (R6). */
+export async function getDefaultStageForCompany(companyId) {
+  const oid = toOid(companyId);
+  if (!oid) return null;
+  const collection = await stagesCol();
+  return collection.findOne({ companyId: oid, isDefault: true });
+}
+
 /** Fetch one stage, scoped to the company — cross-tenant lookups return null. */
 export async function getStageForCompany(companyId, stageId) {
   const companyOid = toOid(companyId);
