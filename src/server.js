@@ -46,6 +46,7 @@ import resumeDownloadRouter from './api/public/resume-download-route.js';
 import dpdpRouter from './api/dpdp/dpdp-routes.js';
 import seekerResumeRouter from './api/seeker/seeker-resume-routes.js';
 import seekerProfileRouter from './api/seeker/seeker-profile-routes.js';
+import seekerMarketRouter from './api/seeker/seeker-market-routes.js';
 import publicApplyRouter from './api/public/public-apply-routes.js';
 import {
   ensureContactIndexes, ensureApplicationIndexes,
@@ -81,6 +82,7 @@ app.use('/api/admin', adminRouter);
 app.use('/api/seeker/news', newsRouter);
 app.use('/api/seeker/resume', requireSeeker, requireConsentForPurpose('resume_parsing'), seekerResumeRouter);
 app.use('/api/seeker/profile', requireSeeker, seekerProfileRouter);
+app.use('/api/seeker/market', requireSeeker, seekerMarketRouter);
 app.use('/api/employer/auth', createEmployerAuthRouter());
 app.use('/api/employer/company', requireEmployer, employerCompanyRouter);
 app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerPostingsRouter);
