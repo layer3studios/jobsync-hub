@@ -154,3 +154,48 @@ test('POST /text with short text → 400', async () => {
   assert.equal(res.status, 400);
   assert.equal(res.body.code, 'INVALID_RESUME_TEXT');
 });
+
+async function storeProfile() {
+  await (await col('users')).updateOne({ _id: USER }, { $set: { parsedProfile: { fullName: 'Asha' } } });
+}
+
+test('POST /review without auth → 401', async () => {
+  const res = await request(buildApp()).post('/api/seeker/resume/review');
+  assert.equal(res.status, 401);
+});
+
+test('POST /review without consent → 403 CONSENT_REQUIRED', async () => {
+  const res = await request(buildApp()).post('/api/seeker/resume/review').set('Cookie', cookie());
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'CONSENT_REQUIRED');
+});
+
+test('POST /review with no stored profile → 400 NO_PROFILE', async () => {
+  await grantConsent();
+  const res = await request(buildApp()).post('/api/seeker/resume/review').set('Cookie', cookie());
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, 'NO_PROFILE');
+});
+
+test('POST /review happy path → 200 with { review }', async () => {
+  await grantConsent();
+  await storeProfile();
+  const res = await request(buildApp()).post('/api/seeker/resume/review').set('Cookie', cookie());
+  assert.equal(res.status, 200);
+  assert.ok(res.body.review);
+  assert.ok(typeof res.body.review.scores.overall === 'number');
+  assert.ok(typeof res.body.review.reviewedAt === 'string');
+});
+
+test('GET /review before run → { review: null }, after run → the review', async () => {
+  await grantConsent();
+  await storeProfile();
+  const before = await request(buildApp()).get('/api/seeker/resume/review').set('Cookie', cookie());
+  assert.equal(before.status, 200);
+  assert.equal(before.body.review, null);
+  await request(buildApp()).post('/api/seeker/resume/review').set('Cookie', cookie());
+  const after = await request(buildApp()).get('/api/seeker/resume/review').set('Cookie', cookie());
+  assert.equal(after.status, 200);
+  assert.ok(after.body.review);
+  assert.ok(Array.isArray(after.body.review.findings));
+});

@@ -46,6 +46,26 @@ export async function patchProfileForUser(userId, patch) {
   return getProfileForUser(userId);
 }
 
+/** Return the stored resumeReview for a user, or null. */
+export async function getReviewForUser(userId) {
+  const oid = toOid(userId);
+  if (!oid) return null;
+  const col = await usersCol();
+  const user = await col.findOne({ _id: oid }, { projection: { resumeReview: 1 } });
+  return user?.resumeReview ?? null;
+}
+
+/** Store a freshly computed review + reviewedAt stamp. Never touches parsedProfile. */
+export async function upsertReviewForUser(userId, review) {
+  const oid = toOid(userId);
+  if (!oid) return;
+  const col = await usersCol();
+  await col.updateOne(
+    { _id: oid },
+    { $set: { resumeReview: review, profileReviewedAt: new Date() } },
+  );
+}
+
 /** Return the SHA-256 hash of the last uploaded resume, or null. */
 export async function getResumeHashForUser(userId) {
   const oid = toOid(userId);

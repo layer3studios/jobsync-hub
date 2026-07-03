@@ -7,6 +7,7 @@ import { dropCollections, closeTestDb } from '../_helpers/test-db.js';
 import { col } from '../../src/Db/connection.js';
 import {
   getProfileForUser, upsertProfileForUser, patchProfileForUser, getResumeHashForUser,
+  getReviewForUser, upsertReviewForUser,
 } from '../../src/models/seeker/seeker-profile-helpers.js';
 
 const USER_A = new ObjectId();
@@ -59,4 +60,23 @@ test('getResumeHashForUser returns null then the stored hash', async () => {
 test('cross-user isolation: A profile not visible to B', async () => {
   await upsertProfileForUser(USER_A.toString(), PROFILE, 'h');
   assert.equal(await getProfileForUser(USER_B.toString()), null);
+});
+
+const REVIEW = { scores: { overall: 72 }, strengths: ['x'], findings: [], topImprovements: [] };
+
+test('getReviewForUser returns null when unset, the stored object when set', async () => {
+  assert.equal(await getReviewForUser(USER_A.toString()), null);
+  await upsertReviewForUser(USER_A.toString(), REVIEW);
+  const got = await getReviewForUser(USER_A.toString());
+  assert.equal(got.scores.overall, 72);
+});
+
+test('upsertReviewForUser stores resumeReview + profileReviewedAt, leaves parsedProfile', async () => {
+  await upsertProfileForUser(USER_A.toString(), PROFILE, 'h');
+  await upsertReviewForUser(USER_A.toString(), REVIEW);
+  const users = await col('users');
+  const doc = await users.findOne({ _id: USER_A });
+  assert.equal(doc.resumeReview.scores.overall, 72);
+  assert.ok(doc.profileReviewedAt instanceof Date);
+  assert.equal(doc.parsedProfile.fullName, 'Asha'); // untouched
 });

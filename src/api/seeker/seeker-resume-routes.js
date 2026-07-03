@@ -10,6 +10,7 @@ import { asyncHandler } from '../../middleware/async-handler-middleware.js';
 import { HttpError } from '../../middleware/error-handler-middleware.js';
 import { processResumeUpload, processResumeText } from '../../services/seeker/resume-upload-service.js';
 import { getJobStatusForUser } from '../../services/seeker/resume-parse-job-service.js';
+import { runResumeReviewForUser, getResumeReviewForUser } from '../../services/seeker/resume-review-service.js';
 
 const router = Router();
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -54,6 +55,18 @@ router.post('/text', asyncHandler(async (req, res) => {
   }
   const result = await processResumeText(req.user.userId, text);
   res.json(result);
+}));
+
+// POST /review — run a fresh Gemma review of the stored profile and persist it.
+router.post('/review', asyncHandler(async (req, res) => {
+  const review = await runResumeReviewForUser(req.user.userId);
+  res.json({ review });
+}));
+
+// GET /review — the cached review, or { review: null } when none has run yet.
+router.get('/review', asyncHandler(async (req, res) => {
+  const review = await getResumeReviewForUser(req.user.userId);
+  res.json({ review });
 }));
 
 // GET /jobs/:jobId — poll parse status. Ownership enforced in the service (§6.5).
