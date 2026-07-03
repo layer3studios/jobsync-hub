@@ -52,6 +52,9 @@ import {
   ensureStageChangeIndexes, ensureResumeFileIndexes, ensureResumeScoreIndexes,
 } from './models/public/index.js';
 import { ensureResumeDirectory } from './services/public/resume-storage-service.js';
+import { ensureResumeParseJobIndexes } from './models/seeker/resume-parse-job-model.js';
+import { ensureTmpDirectory } from './services/seeker/resume-tmp-storage.js';
+import { startResumeParseWorker } from './services/seeker/resume-parse-worker.js';
 
 import { requireSeeker } from './middleware/require-seeker-middleware.js';
 import { requireConsentForPurpose } from './middleware/require-consent-middleware.js';
@@ -112,7 +115,9 @@ const server = app.listen(PORT, async () => {
     await ensureStageChangeIndexes();
     await ensureResumeFileIndexes();
     await ensureResumeScoreIndexes();
+    await ensureResumeParseJobIndexes();
     ensureResumeDirectory();
+    ensureTmpDirectory();
 
     // Gemma JD extraction is optional — the server boots fine without keys.
     if (GEMMA_API_KEYS) {
@@ -121,6 +126,10 @@ const server = app.listen(PORT, async () => {
     } else {
       console.log('[gemma] No API keys configured — extraction disabled.');
     }
+
+    // Async resume-parse queue: recover stuck jobs, sweep temp files, start polling.
+    await startResumeParseWorker();
+    console.log('[queue] resume parse worker started');
 
     console.log(`[server] listening on http://localhost:${PORT}`);
 

@@ -9,6 +9,7 @@ import multer from 'multer';
 import { asyncHandler } from '../../middleware/async-handler-middleware.js';
 import { HttpError } from '../../middleware/error-handler-middleware.js';
 import { processResumeUpload, processResumeText } from '../../services/seeker/resume-upload-service.js';
+import { getJobStatusForUser } from '../../services/seeker/resume-parse-job-service.js';
 
 const router = Router();
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -36,22 +37,30 @@ function runUpload(req, res) {
   });
 }
 
-// POST /upload — multipart PDF (field name "resume").
+// POST /upload — multipart PDF (field name "resume"). Enqueues + returns a jobId
+// (<500ms); the dedup fast path still returns the stored profile inline (D2).
 router.post('/upload', asyncHandler(async (req, res) => {
   await runUpload(req, res);
   if (!req.file) throw new HttpError(400, 'No resume file was provided.', 'NO_FILE');
   const result = await processResumeUpload(req.user.userId, req.file.buffer);
-  res.json({ profile: result.parsedProfile, isUnchanged: result.isUnchanged });
+  res.json(result);
 }));
 
-// POST /text — pasted resume text fallback.
+// POST /text — pasted resume text fallback. Same enqueue contract as /upload.
 router.post('/text', asyncHandler(async (req, res) => {
   const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
   if (text.length < 200 || text.length > 100000) {
     throw new HttpError(400, 'Resume text must be between 200 and 100,000 characters.', 'INVALID_RESUME_TEXT');
   }
   const result = await processResumeText(req.user.userId, text);
-  res.json({ profile: result.parsedProfile, isUnchanged: result.isUnchanged });
+  res.json(result);
+}));
+
+// GET /jobs/:jobId — poll parse status. Ownership enforced in the service (§6.5).
+router.get('/jobs/:jobId', asyncHandler(async (req, res) => {
+  const job = await getJobStatusForUser(req.user.userId, req.params.jobId);
+  if (!job) throw new HttpError(404, 'Job not found.', 'JOB_NOT_FOUND');
+  res.json({ job });
 }));
 
 export default router;
