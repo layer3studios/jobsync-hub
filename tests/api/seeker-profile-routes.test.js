@@ -48,6 +48,38 @@ test('GET / with a profile → { profile: {...} }', async () => {
   assert.equal(res.body.profile.fullName, 'Asha');
 });
 
+test('GET / returns the { profile, meta } envelope shape (FIX-01 B2)', async () => {
+  const res = await request(buildApp()).get('/api/seeker/profile').set('Cookie', cookie());
+  assert.equal(res.status, 200);
+  assert.ok('profile' in res.body); // top-level key preserved (V7 backward compat)
+  assert.ok('meta' in res.body);
+  assert.deepEqual(res.body.meta, {
+    profileParsedAt: null, profileUpdatedAt: null, hasResumeOnFile: false,
+  });
+});
+
+test('GET / meta.hasResumeOnFile true + ISO timestamps after a hashed upsert', async () => {
+  const users = await col('users');
+  const now = new Date();
+  await users.updateOne({ _id: USER }, {
+    $set: { parsedProfile: { fullName: 'Asha' }, lastResumeHash: 'hash-abc', profileParsedAt: now, profileUpdatedAt: now },
+  });
+  const res = await request(buildApp()).get('/api/seeker/profile').set('Cookie', cookie());
+  assert.equal(res.body.meta.hasResumeOnFile, true);
+  assert.equal(res.body.meta.profileParsedAt, now.toISOString());
+});
+
+test('GET / meta.hasResumeOnFile false for a legacy profile without a hash', async () => {
+  const users = await col('users');
+  await users.updateOne({ _id: USER }, {
+    $set: { parsedProfile: { fullName: 'Asha' }, profileParsedAt: new Date() },
+  });
+  const res = await request(buildApp()).get('/api/seeker/profile').set('Cookie', cookie());
+  assert.equal(res.body.profile.fullName, 'Asha');
+  assert.equal(res.body.meta.hasResumeOnFile, false);
+  assert.equal(typeof res.body.meta.profileParsedAt, 'string');
+});
+
 test('PATCH / updates specific fields', async () => {
   const users = await col('users');
   await users.updateOne({ _id: USER }, { $set: { parsedProfile: { fullName: 'Asha', noticePeriod: '30 days' } } });
