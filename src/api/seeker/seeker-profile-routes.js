@@ -7,14 +7,16 @@ import { Router } from 'express';
 import { asyncHandler } from '../../middleware/async-handler-middleware.js';
 import { HttpError } from '../../middleware/error-handler-middleware.js';
 import {
-  getProfileForUser, patchProfileForUser, PATCHABLE_PROFILE_FIELDS,
+  getProfileEnvelopeForUser, patchProfileForUser, PATCHABLE_PROFILE_FIELDS,
 } from '../../models/seeker/seeker-profile-helpers.js';
 
 const router = Router();
 
-// GET / — the caller's parsed profile, or null when not parsed yet.
+// GET / — the caller's parsed profile plus display metadata (FIX-01 B2). The
+// top-level `profile` key is unchanged (additive); `meta` carries the timestamps
+// + hasResumeOnFile hint that F3c's stale badge reads.
 router.get('/', asyncHandler(async (req, res) => {
-  res.json({ profile: await getProfileForUser(req.user.userId) });
+  res.json(await getProfileEnvelopeForUser(req.user.userId));
 }));
 
 // PATCH / — edit whitelisted profile fields.

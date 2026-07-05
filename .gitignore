@@ -5,3 +5,5 @@ package-lock.json
 deploy.ps1
 # Uploaded resume files (local-disk MVP storage)
 data/resumes/
+# Short-lived temp PDFs for the async parse queue
+data/tmp/

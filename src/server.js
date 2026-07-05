@@ -46,12 +46,16 @@ import resumeDownloadRouter from './api/public/resume-download-route.js';
 import dpdpRouter from './api/dpdp/dpdp-routes.js';
 import seekerResumeRouter from './api/seeker/seeker-resume-routes.js';
 import seekerProfileRouter from './api/seeker/seeker-profile-routes.js';
+import seekerMarketRouter from './api/seeker/seeker-market-routes.js';
 import publicApplyRouter from './api/public/public-apply-routes.js';
 import {
   ensureContactIndexes, ensureApplicationIndexes,
   ensureStageChangeIndexes, ensureResumeFileIndexes, ensureResumeScoreIndexes,
 } from './models/public/index.js';
 import { ensureResumeDirectory } from './services/public/resume-storage-service.js';
+import { ensureResumeParseJobIndexes } from './models/seeker/resume-parse-job-model.js';
+import { ensureTmpDirectory } from './services/seeker/resume-tmp-storage.js';
+import { startResumeParseWorker } from './services/seeker/resume-parse-worker.js';
 
 import { requireSeeker } from './middleware/require-seeker-middleware.js';
 import { requireConsentForPurpose } from './middleware/require-consent-middleware.js';
@@ -78,6 +82,7 @@ app.use('/api/admin', adminRouter);
 app.use('/api/seeker/news', newsRouter);
 app.use('/api/seeker/resume', requireSeeker, requireConsentForPurpose('resume_parsing'), seekerResumeRouter);
 app.use('/api/seeker/profile', requireSeeker, seekerProfileRouter);
+app.use('/api/seeker/market', requireSeeker, seekerMarketRouter);
 app.use('/api/employer/auth', createEmployerAuthRouter());
 app.use('/api/employer/company', requireEmployer, employerCompanyRouter);
 app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerPostingsRouter);
@@ -112,7 +117,9 @@ const server = app.listen(PORT, async () => {
     await ensureStageChangeIndexes();
     await ensureResumeFileIndexes();
     await ensureResumeScoreIndexes();
+    await ensureResumeParseJobIndexes();
     ensureResumeDirectory();
+    ensureTmpDirectory();
 
     // Gemma JD extraction is optional — the server boots fine without keys.
     if (GEMMA_API_KEYS) {
@@ -121,6 +128,10 @@ const server = app.listen(PORT, async () => {
     } else {
       console.log('[gemma] No API keys configured — extraction disabled.');
     }
+
+    // Async resume-parse queue: recover stuck jobs, sweep temp files, start polling.
+    await startResumeParseWorker();
+    console.log('[queue] resume parse worker started');
 
     console.log(`[server] listening on http://localhost:${PORT}`);
 

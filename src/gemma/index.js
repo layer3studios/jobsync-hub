@@ -3,5 +3,6 @@
 export * from './key-manager.js';
 export * from './gemma-client.js';
 export * from './extract-requirements.js';
+export * from './review-resume.js';
 export * from './background-extractor.js';
 export * from './gemma-runtime.js';
