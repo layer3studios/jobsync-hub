@@ -7,7 +7,7 @@ import { dropCollections, closeTestDb } from '../_helpers/test-db.js';
 import { col } from '../../src/Db/connection.js';
 import {
   getProfileForUser, upsertProfileForUser, patchProfileForUser, getResumeHashForUser,
-  getReviewForUser, upsertReviewForUser,
+  getReviewForUser, upsertReviewForUser, getProfileEnvelopeForUser,
 } from '../../src/models/seeker/seeker-profile-helpers.js';
 
 const USER_A = new ObjectId();
@@ -34,6 +34,33 @@ test('upsertProfileForUser stores profile + hash + timestamps', async () => {
   assert.equal(doc.lastResumeHash, 'hash-abc');
   assert.ok(doc.profileParsedAt instanceof Date);
   assert.ok(doc.profileUpdatedAt instanceof Date);
+});
+
+test('upsertProfileForUser returns { matchedCount, modifiedCount, userIdUsed } on success', async () => {
+  const result = await upsertProfileForUser(USER_A.toString(), PROFILE, 'hash-ret');
+  assert.equal(result.matchedCount, 1);
+  assert.equal(result.modifiedCount, 1);
+  assert.equal(result.userIdUsed, USER_A.toString());
+});
+
+test('upsertProfileForUser accepts an ObjectId userId (the queue-worker path) and writes', async () => {
+  const result = await upsertProfileForUser(USER_A, PROFILE, 'hash-oid');
+  assert.equal(result.matchedCount, 1);
+  assert.equal(result.userIdUsed, USER_A.toString());
+  const users = await col('users');
+  const doc = await users.findOne({ _id: USER_A });
+  assert.equal(doc.lastResumeHash, 'hash-oid');
+});
+
+test('upsertProfileForUser returns matchedCount 0 + userIdUsed null on an invalid userId', async () => {
+  const result = await upsertProfileForUser('not-a-valid-oid', PROFILE, 'h');
+  assert.deepEqual(result, { matchedCount: 0, modifiedCount: 0, userIdUsed: null });
+});
+
+test('upsertProfileForUser does not throw when the write matches zero docs', async () => {
+  const result = await upsertProfileForUser(new ObjectId().toString(), PROFILE, 'h');
+  assert.equal(result.matchedCount, 0);
+  assert.equal(typeof result.userIdUsed, 'string');
 });
 
 test('getProfileForUser returns the stored profile, null when absent', async () => {
@@ -79,4 +106,37 @@ test('upsertReviewForUser stores resumeReview + profileReviewedAt, leaves parsed
   assert.equal(doc.resumeReview.scores.overall, 72);
   assert.ok(doc.profileReviewedAt instanceof Date);
   assert.equal(doc.parsedProfile.fullName, 'Asha'); // untouched
+});
+
+test('getProfileEnvelopeForUser: unknown user → null profile + empty meta', async () => {
+  const env = await getProfileEnvelopeForUser(new ObjectId().toString());
+  assert.deepEqual(env, {
+    profile: null,
+    meta: { profileParsedAt: null, profileUpdatedAt: null, hasResumeOnFile: false },
+  });
+});
+
+test('getProfileEnvelopeForUser: bad id → empty envelope', async () => {
+  const env = await getProfileEnvelopeForUser('not-an-oid');
+  assert.equal(env.profile, null);
+  assert.equal(env.meta.hasResumeOnFile, false);
+});
+
+test('getProfileEnvelopeForUser: with profile + hash → hasResumeOnFile true, ISO timestamps', async () => {
+  await upsertProfileForUser(USER_A.toString(), PROFILE, 'hash-abc');
+  const env = await getProfileEnvelopeForUser(USER_A.toString());
+  assert.equal(env.profile.fullName, 'Asha');
+  assert.equal(env.meta.hasResumeOnFile, true);
+  assert.equal(typeof env.meta.profileParsedAt, 'string');
+  assert.equal(typeof env.meta.profileUpdatedAt, 'string');
+  assert.ok(!Number.isNaN(Date.parse(env.meta.profileParsedAt)));
+});
+
+test('getProfileEnvelopeForUser: legacy profile with no hash → hasResumeOnFile false, parsedAt survives', async () => {
+  await upsertProfileForUser(USER_A.toString(), PROFILE, 'hash-abc');
+  const users = await col('users');
+  await users.updateOne({ _id: USER_A }, { $unset: { lastResumeHash: '' } });
+  const env = await getProfileEnvelopeForUser(USER_A.toString());
+  assert.equal(env.meta.hasResumeOnFile, false);
+  assert.equal(typeof env.meta.profileParsedAt, 'string');
 });

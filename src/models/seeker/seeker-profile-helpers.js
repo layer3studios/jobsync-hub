@@ -21,16 +21,63 @@ export async function getProfileForUser(userId) {
   return user?.parsedProfile ?? null;
 }
 
-/** Store a freshly parsed profile + resume hash + timestamps. */
-export async function upsertProfileForUser(userId, parsedProfile, fileHash) {
+// ISO-string a Date/date-like value, or null. Timestamps are surfaced as ISO
+// strings so the client can compare them directly to review.reviewedAt (B2).
+function toIsoOrNull(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+const EMPTY_ENVELOPE = Object.freeze({
+  profile: null,
+  meta: Object.freeze({ profileParsedAt: null, profileUpdatedAt: null, hasResumeOnFile: false }),
+});
+
+/**
+ * Read the parsed profile plus display metadata in one projection (FIX-01 B2).
+ * Additive: getProfileForUser keeps its exact shape and callers. hasResumeOnFile
+ * reflects whether the F1 dedup hash is present — false on legacy docs that
+ * predate the hash write.
+ */
+export async function getProfileEnvelopeForUser(userId) {
   const oid = toOid(userId);
-  if (!oid) return;
+  if (!oid) return EMPTY_ENVELOPE;
+  const col = await usersCol();
+  const user = await col.findOne(
+    { _id: oid },
+    { projection: { parsedProfile: 1, profileParsedAt: 1, profileUpdatedAt: 1, lastResumeHash: 1 } },
+  );
+  if (!user) return EMPTY_ENVELOPE;
+  return {
+    profile: user.parsedProfile ?? null,
+    meta: {
+      profileParsedAt: toIsoOrNull(user.profileParsedAt),
+      profileUpdatedAt: toIsoOrNull(user.profileUpdatedAt),
+      hasResumeOnFile: Boolean(user.lastResumeHash),
+    },
+  };
+}
+
+/**
+ * Store a freshly parsed profile + resume hash + timestamps (FIX-02 D1).
+ * Returns the driver's write summary so callers (the queue worker) can treat a
+ * zero-match write as a loud failure instead of silent data loss (R1, R3).
+ * userId may arrive as a hex string (HTTP path) or as an ObjectId (the queue
+ * stores userId as an ObjectId); String() normalises both before toOid so the
+ * filter always hits the intended doc (R2 — the actual FIX-02 root cause).
+ * @returns {Promise<{ matchedCount:number, modifiedCount:number, userIdUsed:string|null }>}
+ */
+export async function upsertProfileForUser(userId, parsedProfile, fileHash) {
+  const oid = toOid(String(userId ?? ''));
+  if (!oid) return { matchedCount: 0, modifiedCount: 0, userIdUsed: null };
   const col = await usersCol();
   const now = new Date();
-  await col.updateOne(
+  const result = await col.updateOne(
     { _id: oid },
     { $set: { parsedProfile, lastResumeHash: fileHash, profileParsedAt: now, profileUpdatedAt: now } },
   );
+  return { matchedCount: result.matchedCount, modifiedCount: result.modifiedCount, userIdUsed: String(oid) };
 }
 
 /** Merge a partial patch into the stored profile via dotted $set paths. */

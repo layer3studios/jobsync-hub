@@ -15,6 +15,10 @@ import {
 import { readTmpFile, deleteTmpFile, sweepOldTmpFiles } from './resume-tmp-storage.js';
 
 const POLL_INTERVAL_MS = 1000;
+// A parse that flips to 'done' but never lands on the user doc is silent
+// corruption (FIX-02). Treat a zero-match profile write as a fatal, terminal
+// job error so the drift surfaces as a testable failure instead (R3).
+const PROFILE_WRITE_MISSED = 'PROFILE_WRITE_MISSED';
 let started = false;
 let timer = null;
 let running = false;
@@ -31,17 +35,28 @@ async function resolveText(job) {
 export async function processOneJob(job) {
   const id = job._id.toString();
   const startedAt = Date.now();
-  console.log(`[queue] job ${id} started`);
+  // hash prefix makes the F1 dedup write path observable — if a dedup miss
+  // recurs, the logs show the profile was stored under this hash (FIX-01 D4).
+  const hashPrefix = (job.fileHash || '').slice(0, 8);
+  console.log(`[queue] job ${id} started (hash=${hashPrefix})`);
   try {
     const text = await resolveText(job);
     const profile = await parseResumeText(text);
-    await upsertProfileForUser(job.userId, profile, job.fileHash);
+    const writeResult = await upsertProfileForUser(job.userId, profile, job.fileHash);
+    if (writeResult.matchedCount === 0) {
+      // Do NOT mark done — the user doc was never touched (FIX-02 D2). Raise a
+      // coded error so the shared catch marks the job failed and cleans the
+      // temp file; the offending userId is preserved in the stored message.
+      const missError = new Error(`updateOne matched 0 for userId=${writeResult.userIdUsed || 'null'}`);
+      missError.code = PROFILE_WRITE_MISSED;
+      throw missError;
+    }
     await markJobDone(id, { profile, isUnchanged: false });
-    console.log(`[queue] job ${id} done in ${Date.now() - startedAt}ms`);
+    console.log(`[queue] job ${id} done in ${Date.now() - startedAt}ms (hash=${hashPrefix}, matched=${writeResult.matchedCount})`);
   } catch (err) {
     const errorCode = err?.code || 'RESUME_PARSE_FAILED';
     await markJobFailed(id, errorCode, err?.message || 'Resume parsing failed.');
-    console.log(`[queue] job ${id} failed`);
+    console.log(`[queue] job ${id} failed (${errorCode})`);
   } finally {
     deleteTmpFile(job.tmpPath);
   }

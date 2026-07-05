@@ -83,6 +83,43 @@ test('a parse failure is caught, marked failed with a code, and still cleans the
   assert.equal(fs.existsSync(path.resolve(tmpPath)), false);
 });
 
+test('tick writes the parsed profile + hash onto the user doc (FIX-02 happy path)', async () => {
+  const job = await insertResumeParseJob({ userId: USER.toString(), source: 'text', resumeText: LONG, fileHash: 'h-happy' });
+  await tick();
+
+  const done = await getJobForUser(USER.toString(), job._id.toString());
+  assert.equal(done.status, 'done');
+  const users = await col('users');
+  const doc = await users.findOne({ _id: USER });
+  assert.equal(doc.lastResumeHash, 'h-happy');
+  assert.equal(doc.parsedProfile.fullName, 'Asha');
+  assert.ok(doc.profileUpdatedAt instanceof Date);
+});
+
+test('a zero-match profile write fails the job with PROFILE_WRITE_MISSED, never done', async () => {
+  const ghostUser = new ObjectId(); // no user doc exists for this id → updateOne matches 0
+  const job = await insertResumeParseJob({ userId: ghostUser.toString(), source: 'text', resumeText: LONG, fileHash: 'h-miss' });
+
+  const ran = await tick();
+  assert.equal(ran, true);
+
+  const failed = await getJobForUser(ghostUser.toString(), job._id.toString());
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.errorCode, 'PROFILE_WRITE_MISSED');
+});
+
+test('a job whose userId does not resolve to an ObjectId fails PROFILE_WRITE_MISSED without throwing', async () => {
+  const job = await insertResumeParseJob({ userId: 'not-a-valid-oid', source: 'text', resumeText: LONG, fileHash: 'h-null' });
+
+  const ran = await tick();
+  assert.equal(ran, true);
+
+  const jobs = await col('resume_parse_jobs');
+  const failed = await jobs.findOne({ _id: job._id });
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.errorCode, 'PROFILE_WRITE_MISSED');
+});
+
 test('tick returns false when the queue is empty', async () => {
   assert.equal(await tick(), false);
 });
