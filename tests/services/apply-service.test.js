@@ -6,6 +6,7 @@ import { ObjectId } from 'mongodb';
 import { dropCollections, closeTestDb } from '../_helpers/test-db.js';
 import { col } from '../../src/Db/connection.js';
 import { ensureContactIndexes } from '../../src/models/public/contact-model.js';
+import { ensureResumeScoreJobIndexes } from '../../src/models/public/resume-score-job-model.js';
 import { processApplication } from '../../src/services/public/apply-service.js';
 
 const COMPANY_ID = new ObjectId();
@@ -29,8 +30,9 @@ before(async () => { await reset(); });
 beforeEach(async () => { await reset(); });
 after(async () => { await closeTestDb(); });
 async function reset() {
-  await dropCollections('companies', 'jobs', 'stages', 'contacts', 'applications', 'stage_changes', 'resume_files');
+  await dropCollections('companies', 'jobs', 'stages', 'contacts', 'applications', 'stage_changes', 'resume_files', 'resume_score_jobs');
   await ensureContactIndexes();
+  await ensureResumeScoreJobIndexes();
   stored = []; deleted = [];
   await (await col('companies')).insertOne({ _id: COMPANY_ID, slug: 'acme', name: 'Acme' });
   await (await col('jobs')).insertOne({ _id: JOB_ID, companyId: COMPANY_ID, slug: 'react-dev', source: 'native', status: 'active', title: 'React Dev' });
@@ -50,6 +52,29 @@ test('happy path creates contact, resume file, application, stage change', async
   const change = await (await col('stage_changes')).findOne({});
   assert.equal(change.fromStageId, null);
   assert.equal(change.toStageId.toString(), STAGE_ID.toString());
+});
+
+// The enqueue is fire-and-forget (D5), so poll briefly for the persisted job.
+async function waitForScoreJob(applicationId) {
+  const jobs = await col('resume_score_jobs');
+  for (let i = 0; i < 50; i += 1) {
+    const job = await jobs.findOne({ applicationId: new ObjectId(applicationId) });
+    if (job) return job;
+    await new Promise((resolve) => { setTimeout(resolve, 20); });
+  }
+  return null;
+}
+
+test('apply enqueues exactly one score job for the new application (end-to-end)', async () => {
+  const { applicationId } = await apply();
+  const jobs = await col('resume_score_jobs');
+  const job = await waitForScoreJob(applicationId);
+  assert.ok(job, 'a score job should exist for the new application');
+  assert.equal(job.status, 'queued');
+  assert.equal(job.companyId.toString(), COMPANY_ID.toString());
+  assert.equal(job.postingId.toString(), JOB_ID.toString());
+  // Idempotent: the unique applicationId index means no duplicate job for one app.
+  assert.equal(await jobs.countDocuments({ applicationId: new ObjectId(applicationId) }), 1);
 });
 
 test('same email twice → one contact, two applications', async () => {
