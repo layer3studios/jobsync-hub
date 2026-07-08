@@ -6,7 +6,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import cron from 'node-cron';
 
-import { PORT, FRONTEND_URL, RUN_SCRAPER_ON_START } from './env.js';
+import { PORT, FRONTEND_URL, RUN_SCRAPER_ON_START, SYNC_ENABLED } from './env.js';
 import { connectToDb, closeDb } from './Db/connection.js';
 import { ensureUserIndexes } from './models/seeker/index.js';
 import { ensureJobIndexes } from './models/shared/job-model.js';
@@ -141,12 +141,16 @@ const server = app.listen(PORT, async () => {
 
     console.log(`[server] listening on http://localhost:${PORT}`);
 
-    // Daily scrape at 06:00 server time.
-    cron.schedule('0 6 * * *', () => {
-      console.log('[cron] daily scrape');
-      runScraper();
-    });
-    console.log('[cron] scheduled');
+    // Daily scrape at 06:00 server time — gated on SYNC_ENABLED so .env can disable it.
+    if (SYNC_ENABLED) {
+      cron.schedule('0 6 * * *', () => {
+        console.log('[cron] daily scrape');
+        runScraper();
+      });
+      console.log('[cron] scheduled');
+    } else {
+      console.log('[cron] scrape schedule DISABLED (SYNC_ENABLED=false)');
+    }
 
     if (RUN_SCRAPER_ON_START) {
       console.log('[boot] RUN_SCRAPER_ON_START is true — running initial scrape');

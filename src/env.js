@@ -47,6 +47,11 @@ export const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
 // Whether to run the scraper once at startup. Default off in development.
 export const RUN_SCRAPER_ON_START = process.env.RUN_SCRAPER_ON_START === 'true';
 
+// Master switch for the daily scrape cron. Defaults true (backward compat) — anything
+// other than the literal 'false' keeps the existing behavior. Set SYNC_ENABLED=false to
+// stop the 6 AM scrape from firing (e.g. to protect Gemma/Gemini quota during a demo).
+export const SYNC_ENABLED = process.env.SYNC_ENABLED !== 'false';
+
 // ─── DPDP compliance (Step 4.5A) ──────────────────────────────────
 // noticeVersion pins each consent to the notice text the user agreed to.
 export const DPDP_NOTICE_VERSION = process.env.DPDP_NOTICE_VERSION
