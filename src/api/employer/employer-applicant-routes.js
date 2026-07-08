@@ -9,10 +9,22 @@ import { asyncHandler } from '../../middleware/async-handler-middleware.js';
 import { requireEmployerApplicant } from '../../middleware/require-employer-applicant-middleware.js';
 import { getApplicantDetailForCompany } from '../../services/employer/applicant-detail-service.js';
 import { moveApplicantToStage } from '../../services/employer/applicant-move-service.js';
-import { archiveApplicant, unarchiveApplicant } from '../../services/employer/applicant-archive-service.js';
+import { archiveApplicant, unarchiveApplicant, bulkArchiveApplicants } from '../../services/employer/applicant-archive-service.js';
 import { signResumeToken, RESUME_URL_TTL_MS } from '../../services/employer/signed-url-service.js';
 
 const router = Router();
+
+// POST /api/employer/applicants/bulk/archive — { applicationIds, reasonId, note? }.
+// MUST precede the /:applicationId routes: Express matches in declaration order, so a
+// static path after a parameterized one would be captured as an applicationId (R2).
+// No requireEmployerApplicant — the service does its own per-item ownership check.
+router.post('/bulk/archive', asyncHandler(async (req, res) => {
+  const { applicationIds, reasonId, note } = req.body || {};
+  const result = await bulkArchiveApplicants(
+    req.employerCompanyId, { applicationIds, reasonId, note }, req.employerUser.employerUserId,
+  );
+  res.json(result);
+}));
 
 // GET /api/employer/applicants/:applicationId — full detail (D2).
 router.get('/:applicationId', requireEmployerApplicant, asyncHandler(async (req, res) => {
