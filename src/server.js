@@ -56,6 +56,8 @@ import { ensureResumeDirectory } from './services/public/resume-storage-service.
 import { ensureResumeParseJobIndexes } from './models/seeker/resume-parse-job-model.js';
 import { ensureTmpDirectory } from './services/seeker/resume-tmp-storage.js';
 import { startResumeParseWorker } from './services/seeker/resume-parse-worker.js';
+import { ensureResumeScoreJobIndexes } from './models/public/resume-score-job-model.js';
+import { startScoreWorker } from './services/public/resume-score-worker.js';
 
 import { requireSeeker } from './middleware/require-seeker-middleware.js';
 import { requireConsentForPurpose } from './middleware/require-consent-middleware.js';
@@ -132,6 +134,10 @@ const server = app.listen(PORT, async () => {
     // Async resume-parse queue: recover stuck jobs, sweep temp files, start polling.
     await startResumeParseWorker();
     console.log('[queue] resume parse worker started');
+
+    // Persistent applicant-scoring queue (Q1): recover stuck jobs, spawn N slots.
+    await ensureResumeScoreJobIndexes();
+    await startScoreWorker();
 
     console.log(`[server] listening on http://localhost:${PORT}`);
 
