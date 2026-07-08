@@ -40,6 +40,23 @@ async function onboardedCookie(tag) {
   return { cookie: `jm_employer_token=${token}`, company };
 }
 
+// A signed-in employer with NO company linked — trips requireEmployerCompany (403).
+async function noCompanyCookie(tag) {
+  const user = await findOrCreateEmployerGoogleUser({ googleId: `gnc-${tag}`, email: `nc${tag}@acme.com`, name: 'NoCo', picture: null });
+  const token = jwt.sign({ employerUserId: user._id.toString(), email: user.email }, EMPLOYER_JWT_SECRET);
+  return `jm_employer_token=${token}`;
+}
+
+async function insertReason(companyId) {
+  return (await (await col('archive_reasons')).insertOne({ companyId, text: 'Underqualified', type: 'non-hired' })).insertedId;
+}
+
+function postBulk(app, cookie, body) {
+  const req = request(app).post('/api/employer/applicants/bulk/archive');
+  if (cookie) req.set('Cookie', cookie);
+  return req.send(body);
+}
+
 async function seedApplicant(companyId, { stageId, archived = null }) {
   const contact = await (await col('contacts')).insertOne({ companyId, email: 'asha@x.com', fullName: 'Asha' });
   const application = await (await col('applications')).insertOne({
@@ -101,4 +118,72 @@ test('GET resume-url returns a signed URL with a 15-min expiry', async () => {
   assert.match(res.body.url, /\/api\/public\/resume-download\?token=/);
   const millisecondsAway = new Date(res.body.expiresAt).getTime() - Date.now();
   assert.ok(millisecondsAway > 14 * 60 * 1000 && millisecondsAway <= 15 * 60 * 1000);
+});
+
+test('POST bulk/archive unauthenticated → 401', async () => {
+  const res = await postBulk(buildApp(), null, { applicationIds: [new ObjectId().toString()], reasonId: new ObjectId().toString() });
+  assert.equal(res.status, 401);
+});
+
+test('POST bulk/archive without a company → 403', async () => {
+  const cookie = await noCompanyCookie('e');
+  const res = await postBulk(buildApp(), cookie, { applicationIds: [new ObjectId().toString()], reasonId: new ObjectId().toString() });
+  assert.equal(res.status, 403);
+});
+
+test('POST bulk/archive happy path → 200 with per-item body shape', async () => {
+  const { cookie, company } = await onboardedCookie('f');
+  const reasonId = await insertReason(company._id);
+  const a1 = await seedApplicant(company._id, { stageId: new ObjectId() });
+  const a2 = await seedApplicant(company._id, { stageId: new ObjectId() });
+  const res = await postBulk(buildApp(), cookie, { applicationIds: [a1.toString(), a2.toString()], reasonId: reasonId.toString() });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.total, 2);
+  assert.equal(res.body.successCount, 2);
+  assert.equal(res.body.failureCount, 0);
+  assert.ok(Array.isArray(res.body.succeeded) && Array.isArray(res.body.failed));
+});
+
+test('POST bulk/archive empty array → 400 BULK_EMPTY', async () => {
+  const { cookie, company } = await onboardedCookie('g');
+  const reasonId = await insertReason(company._id);
+  const res = await postBulk(buildApp(), cookie, { applicationIds: [], reasonId: reasonId.toString() });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, 'BULK_EMPTY');
+});
+
+test('POST bulk/archive >50 items → 400 BULK_LIMIT_EXCEEDED', async () => {
+  const { cookie, company } = await onboardedCookie('h');
+  const reasonId = await insertReason(company._id);
+  const ids = Array.from({ length: 51 }, () => new ObjectId().toString());
+  const res = await postBulk(buildApp(), cookie, { applicationIds: ids, reasonId: reasonId.toString() });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, 'BULK_LIMIT_EXCEEDED');
+});
+
+test('POST bulk/archive mixed → 200 with per-item breakdown', async () => {
+  const { cookie, company } = await onboardedCookie('i');
+  const reasonId = await insertReason(company._id);
+  const ok = await seedApplicant(company._id, { stageId: new ObjectId() });
+  const missing = new ObjectId().toString();
+  const res = await postBulk(buildApp(), cookie, { applicationIds: [ok.toString(), missing], reasonId: reasonId.toString() });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.successCount, 1);
+  assert.equal(res.body.failureCount, 1);
+  assert.equal(res.body.succeeded[0].id, ok.toString());
+  assert.equal(res.body.failed[0].id, missing);
+  assert.equal(res.body.failed[0].code, 'APPLICATION_NOT_FOUND');
+});
+
+test('route order: /bulk/archive is not shadowed by /:applicationId, detail still resolves', async () => {
+  const { cookie, company } = await onboardedCookie('j');
+  const appId = await seedApplicant(company._id, { stageId: new ObjectId() });
+  // The parameterized GET route still resolves a real applicationId.
+  const detail = await request(buildApp()).get(`/api/employer/applicants/${appId}`).set('Cookie', cookie);
+  assert.equal(detail.status, 200);
+  // 'bulk' is NOT captured as an applicationId — the bulk handler runs.
+  const reasonId = await insertReason(company._id);
+  const bulk = await postBulk(buildApp(), cookie, { applicationIds: [appId.toString()], reasonId: reasonId.toString() });
+  assert.equal(bulk.status, 200);
+  assert.equal(bulk.body.total, 1);
 });

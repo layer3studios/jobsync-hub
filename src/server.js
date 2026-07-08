@@ -6,7 +6,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import cron from 'node-cron';
 
-import { PORT, FRONTEND_URL, RUN_SCRAPER_ON_START } from './env.js';
+import { PORT, FRONTEND_URL, RUN_SCRAPER_ON_START, SYNC_ENABLED } from './env.js';
 import { connectToDb, closeDb } from './Db/connection.js';
 import { ensureUserIndexes } from './models/seeker/index.js';
 import { ensureJobIndexes } from './models/shared/job-model.js';
@@ -46,12 +46,18 @@ import resumeDownloadRouter from './api/public/resume-download-route.js';
 import dpdpRouter from './api/dpdp/dpdp-routes.js';
 import seekerResumeRouter from './api/seeker/seeker-resume-routes.js';
 import seekerProfileRouter from './api/seeker/seeker-profile-routes.js';
+import seekerMarketRouter from './api/seeker/seeker-market-routes.js';
 import publicApplyRouter from './api/public/public-apply-routes.js';
 import {
   ensureContactIndexes, ensureApplicationIndexes,
   ensureStageChangeIndexes, ensureResumeFileIndexes, ensureResumeScoreIndexes,
 } from './models/public/index.js';
 import { ensureResumeDirectory } from './services/public/resume-storage-service.js';
+import { ensureResumeParseJobIndexes } from './models/seeker/resume-parse-job-model.js';
+import { ensureTmpDirectory } from './services/seeker/resume-tmp-storage.js';
+import { startResumeParseWorker } from './services/seeker/resume-parse-worker.js';
+import { ensureResumeScoreJobIndexes } from './models/public/resume-score-job-model.js';
+import { startScoreWorker } from './services/public/resume-score-worker.js';
 
 import { requireSeeker } from './middleware/require-seeker-middleware.js';
 import { requireConsentForPurpose } from './middleware/require-consent-middleware.js';
@@ -78,6 +84,7 @@ app.use('/api/admin', adminRouter);
 app.use('/api/seeker/news', newsRouter);
 app.use('/api/seeker/resume', requireSeeker, requireConsentForPurpose('resume_parsing'), seekerResumeRouter);
 app.use('/api/seeker/profile', requireSeeker, seekerProfileRouter);
+app.use('/api/seeker/market', requireSeeker, seekerMarketRouter);
 app.use('/api/employer/auth', createEmployerAuthRouter());
 app.use('/api/employer/company', requireEmployer, employerCompanyRouter);
 app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerPostingsRouter);
@@ -112,7 +119,9 @@ const server = app.listen(PORT, async () => {
     await ensureStageChangeIndexes();
     await ensureResumeFileIndexes();
     await ensureResumeScoreIndexes();
+    await ensureResumeParseJobIndexes();
     ensureResumeDirectory();
+    ensureTmpDirectory();
 
     // Gemma JD extraction is optional — the server boots fine without keys.
     if (GEMMA_API_KEYS) {
@@ -122,14 +131,26 @@ const server = app.listen(PORT, async () => {
       console.log('[gemma] No API keys configured — extraction disabled.');
     }
 
+    // Async resume-parse queue: recover stuck jobs, sweep temp files, start polling.
+    await startResumeParseWorker();
+    console.log('[queue] resume parse worker started');
+
+    // Persistent applicant-scoring queue (Q1): recover stuck jobs, spawn N slots.
+    await ensureResumeScoreJobIndexes();
+    await startScoreWorker();
+
     console.log(`[server] listening on http://localhost:${PORT}`);
 
-    // Daily scrape at 06:00 server time.
-    cron.schedule('0 6 * * *', () => {
-      console.log('[cron] daily scrape');
-      runScraper();
-    });
-    console.log('[cron] scheduled');
+    // Daily scrape at 06:00 server time — gated on SYNC_ENABLED so .env can disable it.
+    if (SYNC_ENABLED) {
+      cron.schedule('0 6 * * *', () => {
+        console.log('[cron] daily scrape');
+        runScraper();
+      });
+      console.log('[cron] scheduled');
+    } else {
+      console.log('[cron] scrape schedule DISABLED (SYNC_ENABLED=false)');
+    }
 
     if (RUN_SCRAPER_ON_START) {
       console.log('[boot] RUN_SCRAPER_ON_START is true — running initial scrape');
