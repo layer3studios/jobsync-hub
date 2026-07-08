@@ -14,7 +14,7 @@ import {
 } from '../../models/public/index.js';
 import * as defaultStorage from './resume-storage-service.js';
 import { validateApplicationForm, isHoneypotFilled } from './apply-validators.js';
-import { scoreApplication } from './scoring-service.js';
+import { enqueueScoreJob } from './resume-score-queue-service.js';
 
 /**
  * Process an application. `resume` is { buffer, originalFilename, mimeType }.
@@ -61,9 +61,11 @@ export async function processApplication(companySlug, jobSlug, form, resume, met
       movedByUserId: null, note: 'Application received',
     });
 
-    // Fire-and-forget AI scoring (D4/C8): never blocks or fails the application.
-    scoreApplication(application._id)
-      .catch((err) => console.warn('[scoring] failed:', err.message));
+    // Enqueue AI scoring (Q1 D5): persistent, retried queue instead of fire-and-forget.
+    // enqueueScoreJob never throws, but keep the .catch as a belt-and-braces guard so
+    // an application can never fail on the scoring path (C8).
+    enqueueScoreJob(application._id, application.companyId, application.jobId)
+      .catch((err) => console.warn('[score-queue] enqueue failed:', err.message));
 
     return { applicationId: application._id.toString() };
   } catch (err) {
