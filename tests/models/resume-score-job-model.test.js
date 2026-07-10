@@ -8,6 +8,7 @@ import {
   ensureResumeScoreJobIndexes, insertScoreJob, claimNextScoreJob,
   markScoreJobDone, markScoreJobFailedTerminal, requeueScoreJobWithBackoff,
   resetStuckScoreJobs, getScoreJobForApplication, LOCK_MINUTES,
+  resetOrInsertScoreJobForApplication,
 } from '../../src/models/public/resume-score-job-model.js';
 
 const COMPANY = new ObjectId();
@@ -148,4 +149,102 @@ test('requeueScoreJobWithBackoff sets nextTryAt in the future and clears lockedU
   assert.equal(job.lockedUntil, null);
   assert.equal(job.attemptCount, 1); // stays incremented from the claim
   assert.equal(job.nextTryAt.getTime(), now.getTime() + 30_000);
+});
+
+// ---------------------------------------------------------------------------
+// resetOrInsertScoreJobForApplication — the manual rescore primitive (T1.2 D11).
+// ---------------------------------------------------------------------------
+
+// D11(a)
+test('rescore reset on a missing job inserts a fresh queued job (wasNew:true)', async () => {
+  const appId = new ObjectId();
+  const { job, wasNew } = await resetOrInsertScoreJobForApplication(appId, COMPANY, POSTING);
+  assert.equal(wasNew, true);
+  assert.equal(job.status, 'queued');
+  assert.equal(job.attemptCount, 0);
+  assert.equal(job.applicationId.toString(), appId.toString());
+  assert.equal(job.companyId.toString(), COMPANY.toString());
+  assert.equal(job.postingId.toString(), POSTING.toString());
+});
+
+// D11(b) + V12: the resume_scores row is neither read nor written by the reset.
+test('rescore reset on a done job requeues it and never touches resume_scores', async () => {
+  const appId = new ObjectId();
+  await enqueue(appId);
+  const claimed = await claimNextScoreJob(0);
+  await markScoreJobDone(claimed._id);
+
+  const scores = await (await connectTestDb()).collection('resume_scores');
+  await scores.deleteMany({});
+  await scores.insertOne({ applicationId: appId, score: 42, tier: 'weak' });
+
+  const { job, wasNew } = await resetOrInsertScoreJobForApplication(appId, COMPANY, POSTING);
+  assert.equal(wasNew, false);
+  assert.equal(job.status, 'queued');
+  assert.equal(job.attemptCount, 0);
+  assert.equal(job.completedAt, null);
+  assert.equal(job.startedAt, null);
+
+  const scoreRow = await scores.findOne({ applicationId: appId });
+  assert.equal(scoreRow.score, 42, 'old score must survive the rescore reset');
+  assert.equal(scoreRow.tier, 'weak');
+  await scores.deleteMany({});
+});
+
+// D11(c)
+test('rescore reset on a terminally failed job clears errorCode and errorMessage', async () => {
+  const appId = new ObjectId();
+  await enqueue(appId);
+  const claimed = await claimNextScoreJob(0);
+  await markScoreJobFailedTerminal(claimed._id, 'SCORE_MAX_ATTEMPTS_EXCEEDED', 'gave up');
+  assert.equal((await getScoreJobForApplication(appId)).status, 'failed');
+
+  const { job, wasNew } = await resetOrInsertScoreJobForApplication(appId, COMPANY, POSTING);
+  assert.equal(wasNew, false);
+  assert.equal(job.status, 'queued');
+  assert.equal(job.errorCode, null);
+  assert.equal(job.errorMessage, null);
+  assert.equal(job.attemptCount, 0);
+  assert.equal(job.nextTryAt, null);
+});
+
+// D11(d)
+test('rescore reset on an already-queued job leaves it queued with attemptCount 0', async () => {
+  const appId = new ObjectId();
+  const inserted = await enqueue(appId);
+  const { job, wasNew } = await resetOrInsertScoreJobForApplication(appId, COMPANY, POSTING);
+  assert.equal(wasNew, false);
+  assert.equal(job.status, 'queued');
+  assert.equal(job.attemptCount, 0);
+  assert.equal(job._id.toString(), inserted.jobId, 'same job doc, never a duplicate');
+});
+
+// D11(e)
+test('rescore reset on a locked processing job overrides the lock and requeues', async () => {
+  const appId = new ObjectId();
+  await enqueue(appId);
+  const claimed = await claimNextScoreJob(0);
+  assert.equal(claimed.status, 'processing');
+  assert.ok(claimed.lockedUntil instanceof Date);
+
+  const { job } = await resetOrInsertScoreJobForApplication(appId, COMPANY, POSTING);
+  assert.equal(job.status, 'queued');
+  assert.equal(job.lockedUntil, null);
+  assert.equal(job.startedAt, null);
+  assert.equal(job.attemptCount, 0, 'attempt budget is restored by a manual rescore');
+});
+
+// D11(f)
+test('concurrent rescore resets for one application resolve to a single job doc', async () => {
+  const appId = new ObjectId();
+  const results = await Promise.all([
+    resetOrInsertScoreJobForApplication(appId, COMPANY, POSTING),
+    resetOrInsertScoreJobForApplication(appId, COMPANY, POSTING),
+    resetOrInsertScoreJobForApplication(appId, COMPANY, POSTING),
+  ]);
+  const ids = new Set(results.map((result) => result.job._id.toString()));
+  assert.equal(ids.size, 1, 'unique index + upsert must never produce two jobs');
+  const jobs = await (await connectTestDb()).collection('resume_score_jobs')
+    .countDocuments({ applicationId: appId });
+  assert.equal(jobs, 1);
 });
