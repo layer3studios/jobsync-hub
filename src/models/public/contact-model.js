@@ -31,10 +31,13 @@ export async function findOrCreateContactForCompany(companyId, { email, fullName
   if (existing) return { contact: existing, isNew: false };
 
   const now = new Date();
+  // githubUrl/portfolioUrl are never supplied by the apply form — they are filled
+  // later by resume enrichment. Declared here so new docs carry a stable shape.
   const doc = {
     companyId: companyOid, email: normalizedEmail,
     fullName: fullName ?? null, phone: phone ?? null,
     linkedinUrl: linkedinUrl ?? null, location: location ?? null,
+    githubUrl: null, portfolioUrl: null,
     firstSeenAt: now, createdAt: now, updatedAt: now,
   };
   try {
@@ -58,7 +61,7 @@ export async function getContactForCompany(companyId, contactId) {
   return collection.findOne({ _id: contactOid, companyId: companyOid });
 }
 
-/** Client-safe projection — id as string. */
+/** Client-safe projection — id as string. Contacts predating enrichment lack the new fields. */
 export function toPublicContact(doc) {
   return {
     id: doc._id.toString(),
@@ -66,7 +69,79 @@ export function toPublicContact(doc) {
     fullName: doc.fullName ?? null,
     phone: doc.phone ?? null,
     linkedinUrl: doc.linkedinUrl ?? null,
+    githubUrl: doc.githubUrl ?? null,
+    portfolioUrl: doc.portfolioUrl ?? null,
     location: doc.location ?? null,
     firstSeenAt: doc.firstSeenAt,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Resume-derived enrichment. Values originate from an LLM, so the model
+// re-validates rather than trusting its caller. Merge rule is FILL-NULLS-ONLY:
+// a value already on the contact is never overwritten, because a later, leaner
+// resume must not erase signal captured from an earlier, richer one.
+// ---------------------------------------------------------------------------
+
+const MAXIMUM_LOCATION_CHARACTERS = 200;
+/** Enrichable URL fields → the hostname fragment each must contain (null = any host). */
+const ENRICHABLE_URL_HOSTS = { linkedinUrl: 'linkedin.com', githubUrl: 'github.com', portfolioUrl: null };
+const ENRICHABLE_FIELDS = ['linkedinUrl', 'githubUrl', 'portfolioUrl', 'location'];
+
+/** Trimmed non-empty string, else null — '' and whitespace-only count as missing (C11). */
+const trimmedOrNull = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);
+
+/** An absolute http(s) URL, optionally host-constrained. Anything else → null. */
+function normalizeEnrichmentUrl(value, requiredHostFragment = null) {
+  const raw = trimmedOrNull(value);
+  if (!raw || !/^https?:\/\//i.test(raw)) return null;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (requiredHostFragment && !parsed.hostname.toLowerCase().includes(requiredHostFragment)) return null;
+  return raw;
+}
+
+/** Trimmed location, truncated to 200 chars. */
+function normalizeEnrichmentLocation(value) {
+  const raw = trimmedOrNull(value);
+  return raw ? raw.slice(0, MAXIMUM_LOCATION_CHARACTERS) : null;
+}
+
+/** Normalize one enrichable field by name; unknown fields and bad values → null. */
+export function normalizeEnrichmentField(key, value) {
+  if (key === 'location') return normalizeEnrichmentLocation(value);
+  if (!Object.hasOwn(ENRICHABLE_URL_HOSTS, key)) return null;
+  return normalizeEnrichmentUrl(value, ENRICHABLE_URL_HOSTS[key]);
+}
+
+/** A field is fillable when it is absent, null, or an empty/whitespace-only string (C11). */
+const isFillable = (value) => value === null || value === undefined
+  || (typeof value === 'string' && !value.trim());
+
+/**
+ * Fill only the contact's missing enrichable fields from `fields` (§6.5 — the write
+ * filter carries companyId). Returns the contact unchanged when nothing qualifies,
+ * and null when the contact does not exist for this company (cross-tenant included).
+ */
+export async function mergeContactEnrichmentForCompany(companyId, contactId, fields = {}) {
+  const current = await getContactForCompany(companyId, contactId);
+  if (!current) return null;
+
+  const setOperations = {};
+  for (const key of ENRICHABLE_FIELDS) {
+    const incoming = normalizeEnrichmentField(key, fields?.[key]);
+    if (incoming !== null && isFillable(current[key])) setOperations[key] = incoming;
+  }
+  if (Object.keys(setOperations).length === 0) return current; // no-op: skip the write entirely
+
+  const collection = await contactsCol();
+  await collection.updateOne(
+    { _id: current._id, companyId: current.companyId },
+    { $set: setOperations, $currentDate: { updatedAt: true } },
+  );
+  return getContactForCompany(companyId, contactId);
 }

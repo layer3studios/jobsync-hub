@@ -9,6 +9,7 @@ import { ObjectId } from 'mongodb';
 import { col } from '../../Db/connection.js';
 import { getResumeFileForApplication as defaultGetResumeFile } from '../../models/public/resume-file-model.js';
 import { upsertResumeScore } from '../../models/public/resume-score-model.js';
+import { mergeContactEnrichmentForCompany as defaultMergeContactEnrichment } from '../../models/public/contact-model.js';
 import { getResumeBuffer as defaultGetResumeBuffer } from './resume-storage-service.js';
 import { extractTextFromPDF as defaultExtractText } from '../seeker/resume-text-extractor.js';
 import { getGemmaClient as defaultGetGemmaClient } from '../../gemma/gemma-runtime.js';
@@ -38,6 +39,12 @@ function storeError(application, code) {
   return upsertResumeScore(application._id, application.companyId, { processingError: code });
 }
 
+/** True when Gemma returned at least one usable contact field worth merging. */
+function hasAnyContactField(contactFields) {
+  if (!contactFields || typeof contactFields !== 'object') return false;
+  return Object.values(contactFields).some((value) => value !== null);
+}
+
 /**
  * Score one application against its posting. Never throws for scoring reasons —
  * only for a genuinely missing application (a programming error). The apply hook
@@ -49,6 +56,7 @@ export async function scoreApplication(applicationId, deps = {}) {
     getResumeBuffer = defaultGetResumeBuffer,
     extractTextFromPDF = defaultExtractText,
     getGemmaClient = defaultGetGemmaClient,
+    mergeContactEnrichment = defaultMergeContactEnrichment,
   } = deps;
 
   const application = await loadApplication(applicationId);
@@ -79,13 +87,26 @@ export async function scoreApplication(applicationId, deps = {}) {
 
     const systemPrompt = buildScoringSystemPrompt(parsedRequirements, resumeText);
     const raw = await client.generateContent(systemPrompt, 'Score this candidate. Return only the JSON object.');
-    const scoreData = parseScoreResponse(raw);
+    // contactFields is peeled off so it never pollutes the resume_scores row.
+    const { contactFields, ...scoreOnly } = parseScoreResponse(raw);
 
-    return await upsertResumeScore(application._id, application.companyId, {
-      ...scoreData,
+    const stored = await upsertResumeScore(application._id, application.companyId, {
+      ...scoreOnly,
       resumeTextLength: resumeText.length,
       processingError: null,
     });
+
+    // Best-effort enrichment. A merge failure must never become a scoring failure,
+    // so it is caught here rather than falling through to the outer handler — that
+    // would overwrite a good score row with a processingError. No PII is logged (C10).
+    if (hasAnyContactField(contactFields)) {
+      try {
+        await mergeContactEnrichment(application.companyId, application.contactId, contactFields);
+      } catch (mergeError) {
+        console.warn('[contact-enrich] merge failed:', mergeError.message);
+      }
+    }
+    return stored;
   } catch (err) {
     return upsertResumeScore(application._id, application.companyId, {
       processingError: err.message || 'SCORING_FAILED',
