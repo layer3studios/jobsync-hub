@@ -150,10 +150,25 @@ async function safeCreateIndex(coll, keys, options = {}) {
   }
 }
 
+/**
+ * Uniqueness on JobID applies to scraped jobs ONLY. The `jobs` collection is
+ * shared with native postings, which carry no JobID — and MongoDB indexes a
+ * missing field as null, so a plain unique index would permit exactly one
+ * native posting collection-wide. The filter keys off `sourceSite` (required on
+ * every scraped job, absent on every native posting) because
+ * partialFilterExpression forbids $ne and $exists:false.
+ */
+export const JOB_ID_UNIQUE_INDEX_NAME = 'jobs_JobID_unique_scraped';
+export const JOB_ID_UNIQUE_INDEX_OPTIONS = {
+  unique: true,
+  partialFilterExpression: { sourceSite: { $exists: true } },
+  name: JOB_ID_UNIQUE_INDEX_NAME,
+};
+
 /** Idempotent index setup. Called from server boot. */
 export async function ensureJobIndexes() {
   const jobs = await col('jobs');
-  await safeCreateIndex(jobs, { JobID: 1 }, { unique: true });
+  await safeCreateIndex(jobs, { JobID: 1 }, JOB_ID_UNIQUE_INDEX_OPTIONS);
   await safeCreateIndex(jobs, { Status: 1, PostedDate: -1 });
   await safeCreateIndex(jobs, { Status: 1, Company: 1 });
   await safeCreateIndex(jobs, { Status: 1, 'autoTags.roleCategory': 1 });
