@@ -10,6 +10,7 @@ import { requireEmployerApplicant } from '../../middleware/require-employer-appl
 import { getApplicantDetailForCompany } from '../../services/employer/applicant-detail-service.js';
 import { moveApplicantToStage } from '../../services/employer/applicant-move-service.js';
 import { archiveApplicant, unarchiveApplicant, bulkArchiveApplicants } from '../../services/employer/applicant-archive-service.js';
+import { rescoreApplicantForCompany } from '../../services/employer/rescore-service.js';
 import { signResumeToken, RESUME_URL_TTL_MS } from '../../services/employer/signed-url-service.js';
 import {
   createApplicantNoteForApplicant, listApplicantNotesForApplicant,
@@ -59,6 +60,13 @@ router.post('/:applicationId/unarchive', requireEmployerApplicant, asyncHandler(
     req.employerCompanyId, req.application._id, req.employerUser.employerUserId,
   );
   res.json(result);
+}));
+
+// POST /api/employer/applicants/:applicationId/rescore — requeue AI scoring.
+// 202 when a job was reset or inserted; 200 when one was already in flight (C9/C10).
+router.post('/:applicationId/rescore', requireEmployerApplicant, asyncHandler(async (req, res) => {
+  const result = await rescoreApplicantForCompany(req.employerCompanyId, req.application._id);
+  res.status(result.rescored ? 202 : 200).json(result);
 }));
 
 // GET /api/employer/applicants/:applicationId/resume-url — signed 15-min URL.
