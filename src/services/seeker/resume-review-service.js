@@ -7,7 +7,7 @@
 // profileUpdatedAt past profileReviewedAt, letting F3c flag a stale review.
 
 import { HttpError } from '../../middleware/error-handler-middleware.js';
-import { getGemmaClient } from '../../gemma/gemma-runtime.js';
+import { getScoringGemmaClient as getGemmaClient } from '../../gemma/gemma-runtime.js';
 import { reviewParsedProfile } from '../../gemma/review-resume.js';
 import {
   getProfileForUser, getReviewForUser, upsertReviewForUser,

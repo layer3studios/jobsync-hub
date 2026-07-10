@@ -26,7 +26,6 @@ import {
 } from './models/dpdp/index.js';
 
 import { initGemma } from './gemma/index.js';
-import { GEMMA_API_KEYS } from './env.js';
 
 import { runScraper } from './tasks/runScraper.js';
 
@@ -123,13 +122,9 @@ const server = app.listen(PORT, async () => {
     ensureResumeDirectory();
     ensureTmpDirectory();
 
-    // Gemma JD extraction is optional — the server boots fine without keys.
-    if (GEMMA_API_KEYS) {
-      const liveKeys = initGemma();
-      console.log(`[gemma] Initialized with ${liveKeys} keys.`);
-    } else {
-      console.log('[gemma] No API keys configured — extraction disabled.');
-    }
+    // Gemma is optional — the server boots fine without keys. initGemma() builds
+    // both pools and logs their status itself, including the no-keys case (C10).
+    initGemma();
 
     // Async resume-parse queue: recover stuck jobs, sweep temp files, start polling.
     await startResumeParseWorker();
