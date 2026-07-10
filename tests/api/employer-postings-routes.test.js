@@ -18,6 +18,7 @@ import {
   ensureCompanyIndexes, ensureEmployerUserIndexes, ensurePostingIndexes,
   findOrCreateEmployerGoogleUser, createCompany, linkCompanyToEmployerUser,
 } from '../../src/models/employer/index.js';
+import { ensureJobIndexes } from '../../src/models/shared/job-model.js';
 
 const VALID_BODY = {
   title: 'React Developer', description: 'x'.repeat(60), location: 'Bangalore',
@@ -46,7 +47,10 @@ beforeEach(async () => { await reset(); });
 after(async () => { await closeTestDb(); });
 async function reset() {
   await dropCollections('jobs', 'companies', 'employer_users');
-  await ensureCompanyIndexes(); await ensureEmployerUserIndexes(); await ensurePostingIndexes();
+  // ensureJobIndexes() mirrors real server boot: `jobs` is shared with scraped
+  // jobs, so its indexes must be present for these routes to be exercised honestly.
+  await ensureCompanyIndexes(); await ensureEmployerUserIndexes();
+  await ensureJobIndexes(); await ensurePostingIndexes();
 }
 
 test('POST creates a posting → 201 with the full public shape', async () => {
@@ -65,6 +69,20 @@ test('POST creates a posting → 201 with the full public shape', async () => {
     assert.ok(field in posting, `missing field ${field}`);
   }
   assert.equal('companyId' in posting, false); // owner field never exposed
+});
+
+// D5(d) — the Livo AI signup path: a second employer must be able to post.
+test('POST twice for DIFFERENT companies → both return 201 (JobID:null regression)', async () => {
+  const app = buildApp();
+  const first = await onboardedCookie('e1');
+  const second = await onboardedCookie('e2');
+  const one = await request(app).post('/api/employer/jobs').set('Cookie', first.cookie).send(VALID_BODY);
+  const two = await request(app).post('/api/employer/jobs').set('Cookie', second.cookie).send(VALID_BODY);
+  assert.equal(one.status, 201);
+  assert.equal(two.status, 201);
+  assert.equal(one.body.posting.slug, 'react-developer');
+  assert.equal(two.body.posting.slug, 'react-developer');
+  assert.notEqual(one.body.posting.id, two.body.posting.id);
 });
 
 test('GET lists only this company, filters by status, excludes scraped jobs', async () => {
