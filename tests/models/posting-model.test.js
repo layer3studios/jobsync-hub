@@ -4,6 +4,7 @@ import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { ObjectId } from 'mongodb';
 import { dropCollections, closeTestDb } from '../_helpers/test-db.js';
+import { col } from '../../src/Db/connection.js';
 import {
   ensurePostingIndexes, generateUniquePostingSlugForCompany, createPostingForCompany,
   listPostingsForCompany, getPostingForCompany, updatePostingForCompany,
@@ -63,6 +64,42 @@ test('concurrent creates with the same title resolve to distinct slugs (E11000 r
   ]);
   assert.notEqual(a.slug, b.slug);
   assert.deepEqual([a.slug, b.slug].sort(), ['react-developer', 'react-developer-2']);
+});
+
+test('a non-slug E11000 is re-thrown with its keyPattern, not masked as a slug failure', async () => {
+  const jobs = await col('jobs');
+  await jobs.createIndex({ JobID: 1 }, { unique: true }); // legacy plain index: JobID:null collides
+  await createPostingForCompany(new ObjectId(), input(), new ObjectId());
+
+  await assert.rejects(
+    () => createPostingForCompany(new ObjectId(), input(), new ObjectId()),
+    (err) => {
+      assert.match(err.message, /duplicate key on a non-slug index/);
+      assert.match(err.message, /"JobID":1/);        // the real colliding key
+      assert.match(err.message, /"JobID":null/);     // and the value that collided
+      assert.doesNotMatch(err.message, /unique posting slug after retries/);
+      return true;
+    },
+  );
+});
+
+test('a duplicate key on any other unique index surfaces that index, not the slug error', async () => {
+  const jobs = await col('jobs');
+  await jobs.createIndex({ title: 1 }, { unique: true, name: 'tmp_title_unique' });
+  await createPostingForCompany(new ObjectId(), input(), new ObjectId());
+  // Same title, different company → slug is free, but the title index collides.
+  await assert.rejects(
+    () => createPostingForCompany(new ObjectId(), input(), new ObjectId()),
+    /duplicate key on a non-slug index.*"title":1/s,
+  );
+});
+
+test('a genuine slug collision is still retried and resolved', async () => {
+  const companyId = new ObjectId();
+  const first = await createPostingForCompany(companyId, input(), new ObjectId());
+  const second = await createPostingForCompany(companyId, input(), new ObjectId());
+  assert.equal(first.slug, 'react-developer');
+  assert.equal(second.slug, 'react-developer-2');
 });
 
 test('getPostingForCompany returns null across tenants and for bad ids', async () => {

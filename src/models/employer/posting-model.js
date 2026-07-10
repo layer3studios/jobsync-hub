@@ -52,17 +52,34 @@ export async function generateUniquePostingSlugForCompany(companyId, title) {
   return buildPostingSlugCandidate(base, randomPostingSlugSuffix());
 }
 
+const DUPLICATE_KEY_CODE = 11000;
+
+/** Render an E11000's colliding index + values for internal diagnostics. */
+function describeDuplicateKey(err) {
+  return `keyPattern=${JSON.stringify(err?.keyPattern ?? null)} keyValue=${JSON.stringify(err?.keyValue ?? null)}`;
+}
+
+/**
+ * True only for an E11000 from a slug-bearing unique index — the sole collision
+ * a fresh slug can resolve. Any other index (e.g. the scraped-jobs JobID index)
+ * must surface, not be retried into a misleading slug error.
+ */
+function isPostingSlugCollision(err) {
+  const keyPattern = err?.keyPattern;
+  return keyPattern != null && Object.prototype.hasOwnProperty.call(keyPattern, 'slug');
+}
+
 /** Insert a native posting; retries up to 3 times on a slug race (E11000). */
 export async function createPostingForCompany(companyId, input, createdByEmployerUserId) {
   const companyOid = toOid(companyId);
   if (!companyOid) throw new Error('createPostingForCompany: invalid companyId');
   const collection = await postingsCol();
   const status = input.status || 'active';
-  let pendingSlug = null;
+  let lastSlugCollision = null;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const now = new Date();
-    const slug = pendingSlug || (await generateUniquePostingSlugForCompany(companyOid, input.title));
+    const slug = await generateUniquePostingSlugForCompany(companyOid, input.title);
     const doc = {
       source: NATIVE,
       companyId: companyOid,
@@ -86,11 +103,14 @@ export async function createPostingForCompany(companyId, input, createdByEmploye
       const result = await collection.insertOne(doc);
       return { ...doc, _id: result.insertedId };
     } catch (err) {
-      if (err?.code === 11000) { pendingSlug = null; continue; }
-      throw err;
+      if (err?.code !== DUPLICATE_KEY_CODE) throw err;
+      if (!isPostingSlugCollision(err)) {
+        throw new Error(`createPostingForCompany: duplicate key on a non-slug index — ${describeDuplicateKey(err)}`);
+      }
+      lastSlugCollision = err;
     }
   }
-  throw new Error('Could not generate a unique posting slug after retries');
+  throw new Error(`Could not generate a unique posting slug after retries (last ${describeDuplicateKey(lastSlugCollision)})`);
 }
 
 /** List a company's native postings, newest first; optional status filter. */
