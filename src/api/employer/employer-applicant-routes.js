@@ -11,6 +11,9 @@ import { getApplicantDetailForCompany } from '../../services/employer/applicant-
 import { moveApplicantToStage } from '../../services/employer/applicant-move-service.js';
 import { archiveApplicant, unarchiveApplicant, bulkArchiveApplicants } from '../../services/employer/applicant-archive-service.js';
 import { signResumeToken, RESUME_URL_TTL_MS } from '../../services/employer/signed-url-service.js';
+import {
+  createApplicantNoteForApplicant, listApplicantNotesForApplicant,
+} from '../../services/employer/applicant-notes-service.js';
 
 const router = Router();
 
@@ -65,6 +68,20 @@ router.get('/:applicationId/resume-url', requireEmployerApplicant, asyncHandler(
     url: `/api/public/resume-download?token=${token}`,
     expiresAt: new Date(Date.now() + RESUME_URL_TTL_MS),
   });
+}));
+
+// GET /api/employer/applicants/:applicationId/notes — newest first (C3/D5).
+router.get('/:applicationId/notes', requireEmployerApplicant, asyncHandler(async (req, res) => {
+  const notes = await listApplicantNotesForApplicant(req.employerCompanyId, req.application._id);
+  res.json({ notes });
+}));
+
+// POST /api/employer/applicants/:applicationId/notes — { body }. 201 with the new note.
+router.post('/:applicationId/notes', requireEmployerApplicant, asyncHandler(async (req, res) => {
+  const note = await createApplicantNoteForApplicant(
+    req.employerCompanyId, req.application._id, req.employerUser.employerUserId, req.body?.body,
+  );
+  res.status(201).json({ note });
 }));
 
 export default router;

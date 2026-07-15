@@ -69,7 +69,7 @@ before(async () => { await reset(); });
 beforeEach(async () => { await reset(); });
 after(async () => { await closeTestDb(); });
 async function reset() {
-  await dropCollections('companies', 'employer_users', 'applications', 'contacts', 'stages', 'archive_reasons', 'stage_changes', 'resume_scores', 'resume_files');
+  await dropCollections('companies', 'employer_users', 'applications', 'contacts', 'stages', 'archive_reasons', 'stage_changes', 'resume_scores', 'resume_files', 'applicant_notes');
   await ensureCompanyIndexes(); await ensureEmployerUserIndexes();
 }
 
