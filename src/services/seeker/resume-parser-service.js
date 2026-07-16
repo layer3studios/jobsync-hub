@@ -5,7 +5,7 @@
 // output is defaulted/validated in code so storage sees a stable shape (R5).
 
 import { HttpError } from '../../middleware/error-handler-middleware.js';
-import { getGemmaClient } from '../../gemma/gemma-runtime.js';
+import { getScoringGemmaClient as getGemmaClient } from '../../gemma/gemma-runtime.js';
 
 const SENIORITY_LEVELS = ['Entry', 'Mid', 'Senior', 'Lead', 'Executive'];
 

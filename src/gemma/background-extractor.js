@@ -7,7 +7,7 @@
 
 import { col } from '../Db/connection.js';
 import { extractRequirementsFromJD } from './extract-requirements.js';
-import { getGemmaClient } from './gemma-runtime.js';
+import { getScoringGemmaClient } from './gemma-runtime.js';
 
 /** Map a job doc (either shape) to { title, company, description }. */
 function readJdFields(jobDoc) {
@@ -19,9 +19,11 @@ function readJdFields(jobDoc) {
 
 /**
  * Extract requirements for one job and persist them. `client` is injectable for
- * tests; in production it defaults to the boot-time singleton.
+ * tests; it defaults to the real-time (scoring) pool, which is correct for the
+ * employer post-create path. The scraper's batch loop passes its own pool's
+ * client explicitly — see tasks/scraper-extraction-hook.js.
  */
-export async function extractAndStoreRequirements(jobDoc, client = getGemmaClient()) {
+export async function extractAndStoreRequirements(jobDoc, client = getScoringGemmaClient()) {
   if (!jobDoc || jobDoc.parsedRequirements) return; // idempotent skip
   if (!client) throw new Error('extractAndStoreRequirements: Gemma is not configured');
 

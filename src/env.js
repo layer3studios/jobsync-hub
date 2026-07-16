@@ -68,6 +68,8 @@ export const DPDP_CROSS_BORDER_ENABLED = (process.env.DPDP_CROSS_BORDER_ENABLED 
 // buckets, R2). All three have safe defaults so the server boots without them —
 // extraction is simply disabled when no keys are configured.
 export const GEMMA_API_KEYS = process.env.GEMMA_API_KEYS || '';
+// Scraper JD extraction pool (batch). If empty, scraper falls back to GEMMA_API_KEYS.
+export const GEMMA_SCRAPER_API_KEYS = process.env.GEMMA_SCRAPER_API_KEYS || '';
 export const GEMMA_MODEL = process.env.GEMMA_MODEL || 'gemma-4-26b-a4b-it';
 export const GEMMA_BASE_URL = process.env.GEMMA_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta';
 

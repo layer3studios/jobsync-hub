@@ -94,7 +94,7 @@ export function validateExtractedLocation(raw) {
   return trimmed ? trimmed.slice(0, MAXIMUM_LOCATION_CHARACTERS) : null;
 }
 
-/** Map + validate Gemma's contact_fields block. Absent or malformed → null (C8). */
+/** Map + validate Gemma's contact_fields block. Absent or malformed → null. */
 function parseContactFields(rawContactFields) {
   const isPlainObject = rawContactFields != null
     && typeof rawContactFields === 'object'

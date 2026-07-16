@@ -88,7 +88,7 @@ const MAXIMUM_LOCATION_CHARACTERS = 200;
 const ENRICHABLE_URL_HOSTS = { linkedinUrl: 'linkedin.com', githubUrl: 'github.com', portfolioUrl: null };
 const ENRICHABLE_FIELDS = ['linkedinUrl', 'githubUrl', 'portfolioUrl', 'location'];
 
-/** Trimmed non-empty string, else null — '' and whitespace-only count as missing (C11). */
+/** Trimmed non-empty string, else null — '' and whitespace-only count as missing. */
 const trimmedOrNull = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);
 
 /** An absolute http(s) URL, optionally host-constrained. Anything else → null. */
@@ -118,7 +118,7 @@ export function normalizeEnrichmentField(key, value) {
   return normalizeEnrichmentUrl(value, ENRICHABLE_URL_HOSTS[key]);
 }
 
-/** A field is fillable when it is absent, null, or an empty/whitespace-only string (C11). */
+/** A field is fillable when it is absent, null, or an empty/whitespace-only string. */
 const isFillable = (value) => value === null || value === undefined
   || (typeof value === 'string' && !value.trim());
 

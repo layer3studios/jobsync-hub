@@ -112,6 +112,7 @@ test('validateExtractedUrl enforces scheme, parseability and host', () => {
   assert.equal(validateExtractedUrl('https://linkedin.com/in/a', 'linkedin.com'), 'https://linkedin.com/in/a');
   assert.equal(validateExtractedUrl('http://in.linkedin.com/in/a', 'linkedin.com'), 'http://in.linkedin.com/in/a');
   assert.equal(validateExtractedUrl('https://evil.com/in/a', 'linkedin.com'), null);
+  assert.equal(validateExtractedUrl('javascript:alert(1)'), null);
   assert.equal(validateExtractedUrl('https://'), null);
   assert.equal(validateExtractedUrl(undefined), null);
   assert.equal(validateExtractedUrl('https://any.host/path'), 'https://any.host/path');
