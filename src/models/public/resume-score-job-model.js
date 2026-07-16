@@ -79,6 +79,35 @@ export async function insertScoreJob(applicationId, companyId, postingId, now = 
   }
 }
 
+/** The fields a rescore resets — a job returns to exactly its freshly-inserted state. */
+const RESCORE_RESET_FIELDS = Object.freeze({
+  status: SCORE_JOB_STATUS.QUEUED, errorCode: null, errorMessage: null, attemptCount: 0,
+  nextTryAt: null, lockedUntil: null, startedAt: null, completedAt: null,
+});
+
+/**
+ * Reset an application's score job to a fresh queued state, inserting one if absent
+ * (R1 — reset, never duplicate). Atomic upsert against the unique applicationId index.
+ * Touches ONLY resume_score_jobs; the resume_scores row is left for the worker to
+ * overwrite, so the old score stays visible until the new one lands (C13). */
+export async function resetOrInsertScoreJobForApplication(applicationId, companyId, postingId, now = new Date()) {
+  const appOid = toOid(applicationId);
+  if (!appOid) throw new Error('resetOrInsertScoreJobForApplication: invalid applicationId');
+  const collection = await jobsCol();
+  const filter = { applicationId: appOid };
+  const reset = { $set: { ...RESCORE_RESET_FIELDS } };
+  try {
+    const result = await collection.findOneAndUpdate(filter,
+      { ...reset, $setOnInsert: { applicationId: appOid, companyId: toOid(companyId), postingId: toOid(postingId), createdAt: now } },
+      { upsert: true, returnDocument: 'after', includeResultMetadata: true });
+    return { job: result.value, wasNew: Boolean(result.lastErrorObject?.upserted) };
+  } catch (err) {
+    if (err?.code !== 11000) throw err; // lost an upsert race — the doc exists now; reset it
+    const job = await collection.findOneAndUpdate(filter, reset, { returnDocument: 'after' });
+    return { job, wasNew: false };
+  }
+}
+
 /**
  * Atomically claim the oldest ready queued job (R1): status queued, nextTryAt due,
  * and either unlocked or its lock expired. Flips it to processing, stamps the lock,

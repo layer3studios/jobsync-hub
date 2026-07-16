@@ -17,7 +17,7 @@ before(async () => { await reset(); });
 beforeEach(async () => { await reset(); });
 after(async () => { await closeTestDb(); });
 async function reset() {
-  await dropCollections('applications', 'contacts', 'resume_scores', 'stage_changes', 'resume_files');
+  await dropCollections('applications', 'contacts', 'resume_scores', 'stage_changes', 'resume_files', 'resume_score_jobs');
   await (await col('contacts')).insertOne({ _id: CONTACT_ID, companyId: COMPANY_ID, email: 'asha@x.com', fullName: 'Asha' });
   await (await col('applications')).insertOne({
     _id: APP_ID, companyId: COMPANY_ID, contactId: CONTACT_ID, stageId: STAGE_ID,
@@ -25,6 +25,36 @@ async function reset() {
   });
   await (await col('stage_changes')).insertOne({ applicationId: APP_ID, fromStageId: null, toStageId: STAGE_ID, movedAt: new Date() });
 }
+
+// D14(m)
+test('scoreJobStatus is null when no score job exists', async () => {
+  const detail = await getApplicantDetailForCompany(COMPANY_ID, APP_ID);
+  assert.equal(detail.scoreJobStatus, null);
+});
+
+// D14(n)
+test('scoreJobStatus reflects a done score job', async () => {
+  await (await col('resume_score_jobs')).insertOne({
+    applicationId: APP_ID, companyId: COMPANY_ID, postingId: new ObjectId(),
+    status: 'done', errorCode: null, attemptCount: 1, nextTryAt: null, completedAt: new Date(),
+  });
+  const detail = await getApplicantDetailForCompany(COMPANY_ID, APP_ID);
+  assert.equal(detail.scoreJobStatus.status, 'done');
+  assert.equal(detail.scoreJobStatus.attemptCount, 1);
+  assert.equal(detail.scoreJobStatus.errorCode, null);
+  assert.equal(typeof detail.scoreJobStatus.jobId, 'string');
+});
+
+test('scoreJobStatus surfaces a terminal failure with its errorCode', async () => {
+  await (await col('resume_score_jobs')).insertOne({
+    applicationId: APP_ID, companyId: COMPANY_ID, postingId: new ObjectId(),
+    status: 'failed', errorCode: 'SCORE_MAX_ATTEMPTS_EXCEEDED', attemptCount: 3, nextTryAt: null,
+  });
+  const detail = await getApplicantDetailForCompany(COMPANY_ID, APP_ID);
+  assert.equal(detail.scoreJobStatus.status, 'failed');
+  assert.equal(detail.scoreJobStatus.errorCode, 'SCORE_MAX_ATTEMPTS_EXCEEDED');
+  assert.equal(detail.scoreJobStatus.attemptCount, 3);
+});
 
 test('happy path returns all sections', async () => {
   await (await col('resume_scores')).insertOne({ applicationId: APP_ID, companyId: COMPANY_ID, score: 80, tier: 'good' });

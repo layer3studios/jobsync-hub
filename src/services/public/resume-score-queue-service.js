@@ -6,7 +6,7 @@
 // worker stays multi-tenant safe without ambient context.
 
 import {
-  insertScoreJob, getScoreJobForApplication,
+  insertScoreJob, getScoreJobForApplication, resetOrInsertScoreJobForApplication,
 } from '../../models/public/resume-score-job-model.js';
 
 /**
@@ -21,6 +21,27 @@ export async function enqueueScoreJob(applicationId, companyId, postingId) {
   } catch (err) {
     console.warn('[score-queue] enqueue failed:', err?.message || err);
     return { jobId: null, alreadyExisted: false, enqueued: false };
+  }
+}
+
+/**
+ * Requeue an application for scoring — reset an existing job to queued, or insert one.
+ * Mirrors enqueueScoreJob's contract: never rejects; on failure logs and returns
+ * { jobId: null, enqueued: false }. The worker treats a reset job like any fresh one.
+ */
+export async function enqueueRescoreJob(applicationId, companyId, postingId) {
+  try {
+    const { job, wasNew } = await resetOrInsertScoreJobForApplication(applicationId, companyId, postingId);
+    return {
+      jobId: job._id.toString(),
+      jobStatus: job.status,
+      attemptCount: job.attemptCount ?? 0,
+      wasNew,
+      enqueued: true,
+    };
+  } catch (err) {
+    console.warn('[score-queue] rescore enqueue failed:', err?.message || err);
+    return { jobId: null, jobStatus: null, attemptCount: 0, wasNew: false, enqueued: false };
   }
 }
 
