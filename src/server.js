@@ -50,6 +50,7 @@ import publicApplyRouter from './api/public/public-apply-routes.js';
 import {
   ensureContactIndexes, ensureApplicationIndexes,
   ensureStageChangeIndexes, ensureResumeFileIndexes, ensureResumeScoreIndexes,
+  ensureApplicantNoteIndexes,
 } from './models/public/index.js';
 import { ensureResumeDirectory } from './services/public/resume-storage-service.js';
 import { ensureResumeParseJobIndexes } from './models/seeker/resume-parse-job-model.js';
@@ -116,6 +117,7 @@ const server = app.listen(PORT, async () => {
     await ensureContactIndexes();
     await ensureApplicationIndexes();
     await ensureStageChangeIndexes();
+    await ensureApplicantNoteIndexes();
     await ensureResumeFileIndexes();
     await ensureResumeScoreIndexes();
     await ensureResumeParseJobIndexes();

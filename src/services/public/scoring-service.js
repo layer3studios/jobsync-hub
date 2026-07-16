@@ -87,7 +87,7 @@ export async function scoreApplication(applicationId, deps = {}) {
 
     const systemPrompt = buildScoringSystemPrompt(parsedRequirements, resumeText);
     const raw = await client.generateContent(systemPrompt, 'Score this candidate. Return only the JSON object.');
-    // contactFields is peeled off so it never pollutes the resume_scores row (D7).
+    // contactFields is peeled off so it never pollutes the resume_scores row.
     const { contactFields, ...scoreOnly } = parseScoreResponse(raw);
 
     const stored = await upsertResumeScore(application._id, application.companyId, {
@@ -96,10 +96,15 @@ export async function scoreApplication(applicationId, deps = {}) {
       processingError: null,
     });
 
-    // Best-effort enrichment: a merge failure must never become a scoring failure.
-    if (hasAnyContactField(contactFields)) {
-      await mergeContactEnrichment(application.companyId, application.contactId, contactFields)
-        .catch((err) => console.warn('[contact-enrich] merge failed:', err.message));
+    // Best-effort enrichment. A merge failure must never become a scoring failure,
+    // so it is caught here rather than falling through to the outer handler — that
+    // would overwrite a good score row with a processingError. No PII is logged.
+    if (hasAnyContactField(contactFields) && application.contactId) {
+      try {
+        await mergeContactEnrichment(application.companyId, application.contactId, contactFields);
+      } catch (mergeError) {
+        console.warn('[contact-enrich] merge failed:', mergeError.message);
+      }
     }
     return stored;
   } catch (err) {

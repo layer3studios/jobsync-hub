@@ -22,6 +22,9 @@ import {
   ensureCompanyIndexes, ensureEmployerUserIndexes,
   findOrCreateEmployerGoogleUser, createCompany, linkCompanyToEmployerUser,
 } from '../../src/models/employer/index.js';
+import {
+  ensureResumeScoreJobIndexes, insertScoreJob, claimNextScoreJob, markScoreJobDone,
+} from '../../src/models/public/resume-score-job-model.js';
 
 function buildApp() {
   const app = express();
@@ -69,9 +72,12 @@ before(async () => { await reset(); });
 beforeEach(async () => { await reset(); });
 after(async () => { await closeTestDb(); });
 async function reset() {
-  await dropCollections('companies', 'employer_users', 'applications', 'contacts', 'stages', 'archive_reasons', 'stage_changes', 'resume_scores', 'resume_files');
+  await dropCollections('companies', 'employer_users', 'applications', 'contacts', 'stages', 'archive_reasons', 'stage_changes', 'resume_scores', 'resume_files', 'resume_score_jobs');
   await ensureCompanyIndexes(); await ensureEmployerUserIndexes();
+  await ensureResumeScoreJobIndexes();
 }
+
+const rescorePath = (appId) => `/api/employer/applicants/${appId}/rescore`;
 
 test('GET detail requires auth (401 without cookie)', async () => {
   const res = await request(buildApp()).get(`/api/employer/applicants/${new ObjectId()}`);
@@ -186,4 +192,87 @@ test('route order: /bulk/archive is not shadowed by /:applicationId, detail stil
   const bulk = await postBulk(buildApp(), cookie, { applicationIds: [appId.toString()], reasonId: reasonId.toString() });
   assert.equal(bulk.status, 200);
   assert.equal(bulk.body.total, 1);
+});
+
+// ---------------------------------------------------------------------------
+// POST /:applicationId/rescore (T1.2 D13)
+// ---------------------------------------------------------------------------
+
+// D13(l)
+test('POST rescore requires auth (401 without cookie)', async () => {
+  const res = await request(buildApp()).post(rescorePath(new ObjectId()));
+  assert.equal(res.status, 401);
+});
+
+// D13(i)
+test('POST rescore on a done job → 202 with a freshly queued job', async () => {
+  const { cookie, company } = await onboardedCookie('rs1');
+  const appId = await seedApplicant(company._id, { stageId: new ObjectId() });
+  await insertScoreJob(appId, company._id, new ObjectId());
+  const claimed = await claimNextScoreJob(0);
+  await markScoreJobDone(claimed._id);
+
+  const res = await request(buildApp()).post(rescorePath(appId)).set('Cookie', cookie);
+  assert.equal(res.status, 202);
+  assert.equal(res.body.rescored, true);
+  assert.equal(res.body.jobStatus, 'queued');
+  assert.equal(res.body.attemptCount, 0);
+  assert.equal(typeof res.body.jobId, 'string');
+  assert.equal(res.body.jobId, claimed._id.toString(), 'reset the same job, no duplicate');
+});
+
+test('POST rescore with no existing job → 202 and inserts one', async () => {
+  const { cookie, company } = await onboardedCookie('rs2');
+  const appId = await seedApplicant(company._id, { stageId: new ObjectId() });
+  const res = await request(buildApp()).post(rescorePath(appId)).set('Cookie', cookie);
+  assert.equal(res.status, 202);
+  assert.deepEqual(
+    { rescored: res.body.rescored, jobStatus: res.body.jobStatus, attemptCount: res.body.attemptCount },
+    { rescored: true, jobStatus: 'queued', attemptCount: 0 },
+  );
+});
+
+// D13(j) — idempotency: already in flight is a no-op.
+test('POST rescore while the job is queued → 200 no-op with the current status', async () => {
+  const { cookie, company } = await onboardedCookie('rs3');
+  const appId = await seedApplicant(company._id, { stageId: new ObjectId() });
+  const inserted = await insertScoreJob(appId, company._id, new ObjectId());
+
+  const res = await request(buildApp()).post(rescorePath(appId)).set('Cookie', cookie);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.rescored, false);
+  assert.equal(res.body.jobStatus, 'queued');
+  assert.equal(res.body.jobId, inserted.jobId);
+});
+
+test('POST rescore while the job is processing → 200 no-op, lock is not stolen', async () => {
+  const { cookie, company } = await onboardedCookie('rs4');
+  const appId = await seedApplicant(company._id, { stageId: new ObjectId() });
+  await insertScoreJob(appId, company._id, new ObjectId());
+  const claimed = await claimNextScoreJob(0);
+
+  const res = await request(buildApp()).post(rescorePath(appId)).set('Cookie', cookie);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.rescored, false);
+  assert.equal(res.body.jobStatus, 'processing');
+  assert.equal(res.body.attemptCount, claimed.attemptCount);
+});
+
+// D13(k)
+test('POST rescore on another company\'s application → 404, no job created', async () => {
+  const owner = await onboardedCookie('rs5');
+  const intruder = await onboardedCookie('rs6');
+  const appId = await seedApplicant(owner.company._id, { stageId: new ObjectId() });
+
+  const res = await request(buildApp()).post(rescorePath(appId)).set('Cookie', intruder.cookie);
+  assert.equal(res.status, 404);
+  assert.equal(res.body.code, 'APPLICATION_NOT_FOUND');
+  const count = await (await col('resume_score_jobs')).countDocuments({});
+  assert.equal(count, 0, 'a cross-tenant rescore must not queue anything');
+});
+
+test('POST rescore with a malformed applicationId → 400', async () => {
+  const { cookie } = await onboardedCookie('rs7');
+  const res = await request(buildApp()).post(rescorePath('not-an-oid')).set('Cookie', cookie);
+  assert.equal(res.status, 400);
 });

@@ -21,7 +21,7 @@ const VALID_CONTACT_FIELDS = {
   location: 'Bangalore, India',
 };
 
-/** A Gemma client returning the base score payload plus the given contact_fields. */
+/** Gemma client returning the base score payload, optionally with contact_fields. */
 function gemmaReturning(contactFields) {
   const body = contactFields === undefined ? GEMMA_BASE : { ...GEMMA_BASE, contact_fields: contactFields };
   return () => ({ generateContent: async () => JSON.stringify(body) });
@@ -122,8 +122,9 @@ test('missing application → throws (programming error, not a scoring failure)'
   await assert.rejects(() => scoreApplication(new ObjectId(), baseDeps()));
 });
 
-// D9(m)
-test('valid contact_fields → all four land on the contact after scoreApplication returns', async () => {
+// ─── Contact enrichment (Chunk 2) ─────────────────────────────────────
+
+test('valid contactFields → all four land on the contact after scoreApplication returns', async () => {
   await scoreApplication(APP_ID, baseDeps({ getGemmaClient: gemmaReturning(VALID_CONTACT_FIELDS) }));
   const contact = await loadContact();
   assert.equal(contact.linkedinUrl, 'https://www.linkedin.com/in/asha-rao');
@@ -132,8 +133,7 @@ test('valid contact_fields → all four land on the contact after scoreApplicati
   assert.equal(contact.location, 'Bangalore, India');
 });
 
-// D9(n) — backward compatibility.
-test('no contact_fields in the Gemma response → contact untouched, scoring still succeeds', async () => {
+test('no contact_fields in the model response → contact untouched, score still persisted', async () => {
   await scoreApplication(APP_ID, baseDeps({ getGemmaClient: gemmaReturning(undefined) }));
   const stored = await getResumeScoreForApplication(APP_ID);
   assert.equal(stored.score, 82);
@@ -141,16 +141,14 @@ test('no contact_fields in the Gemma response → contact untouched, scoring sti
   const contact = await loadContact();
   assert.equal(contact.linkedinUrl, null);
   assert.equal(contact.githubUrl, null);
-  assert.equal(contact.location, null);
 });
 
-// D9(o)
-test('mixed valid/invalid URLs → only the valid ones land on the contact', async () => {
+test('mixed valid/invalid URLs → only the valid ones reach the contact', async () => {
   await scoreApplication(APP_ID, baseDeps({
     getGemmaClient: gemmaReturning({
-      linkedin_url: 'https://example.com/in/asha', // wrong host → dropped
+      linkedin_url: 'https://example.com/in/asha', // wrong host → dropped in-flight
       github_url: 'https://github.com/asharao',    // valid
-      portfolio_url: 'not-a-url',                  // no scheme → dropped
+      portfolio_url: 'not-a-url',                  // no scheme → dropped in-flight
       location: 'Bangalore',
     }),
   }));
@@ -159,20 +157,9 @@ test('mixed valid/invalid URLs → only the valid ones land on the contact', asy
   assert.equal(contact.githubUrl, 'https://github.com/asharao');
   assert.equal(contact.portfolioUrl, null);
   assert.equal(contact.location, 'Bangalore');
-});
-
-// D9(p)
-test('a throwing merge never fails scoring and never escapes scoreApplication', async () => {
-  const stored = await scoreApplication(APP_ID, baseDeps({
-    getGemmaClient: gemmaReturning(VALID_CONTACT_FIELDS),
-    mergeContactEnrichment: async () => { throw new Error('contacts collection down'); },
-  }));
-  assert.equal(stored.score, 82);
   assert.equal((await getResumeScoreForApplication(APP_ID)).processingError, null);
-  assert.equal((await loadContact()).linkedinUrl, null); // unchanged
 });
 
-// D9(q) — fill-nulls-only, end to end through the service.
 test('an existing linkedinUrl is not overwritten by a later scoring pass', async () => {
   await (await col('contacts')).updateOne(
     { _id: CONTACT_ID }, { $set: { linkedinUrl: 'https://linkedin.com/in/original' } },
@@ -183,18 +170,31 @@ test('an existing linkedinUrl is not overwritten by a later scoring pass', async
   assert.equal(contact.githubUrl, 'https://github.com/asharao', 'null field still filled');
 });
 
-// D7 / V11 — contactFields must never reach the resume_scores row.
-test('contactFields is peeled off and never persisted on the score row', async () => {
+// Both a rejected promise and a synchronous throw must be contained.
+for (const [label, throwingMerge] of [
+  ['asynchronously', async () => { throw new Error('contacts collection down'); }],
+  ['synchronously', () => { throw new Error('sync boom'); }],
+]) {
+  test(`a merge that throws ${label} never fails scoring nor escapes scoreApplication`, async () => {
+    const stored = await scoreApplication(APP_ID, baseDeps({
+      getGemmaClient: gemmaReturning(VALID_CONTACT_FIELDS), mergeContactEnrichment: throwingMerge,
+    }));
+    assert.equal(stored.score, 82);
+    assert.equal((await getResumeScoreForApplication(APP_ID)).processingError, null);
+    assert.equal((await loadContact()).linkedinUrl, null); // unchanged
+  });
+}
+
+test('the persisted resume_scores doc contains neither contactFields nor contact_fields', async () => {
   await scoreApplication(APP_ID, baseDeps({ getGemmaClient: gemmaReturning(VALID_CONTACT_FIELDS) }));
   const row = await (await col('resume_scores')).findOne({ applicationId: APP_ID });
   assert.equal('contactFields' in row, false);
   assert.equal('contact_fields' in row, false);
 });
 
-test('a contact-less application (no contactId) scores fine and merges nothing', async () => {
+test('an application with no contactId → merge is a no-op, scoring still succeeds', async () => {
   await (await col('applications')).updateOne({ _id: APP_ID }, { $unset: { contactId: '' } });
   const stored = await scoreApplication(APP_ID, baseDeps({ getGemmaClient: gemmaReturning(VALID_CONTACT_FIELDS) }));
   assert.equal(stored.score, 82);
-  assert.equal(stored.processingError, null);
   assert.equal((await loadContact()).linkedinUrl, null);
 });

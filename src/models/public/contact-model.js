@@ -31,6 +31,8 @@ export async function findOrCreateContactForCompany(companyId, { email, fullName
   if (existing) return { contact: existing, isNew: false };
 
   const now = new Date();
+  // githubUrl/portfolioUrl are never supplied by the apply form — they are filled
+  // later by resume enrichment. Declared here so new docs carry a stable shape.
   const doc = {
     companyId: companyOid, email: normalizedEmail,
     fullName: fullName ?? null, phone: phone ?? null,
@@ -75,10 +77,10 @@ export function toPublicContact(doc) {
 }
 
 // ---------------------------------------------------------------------------
-// Resume-derived enrichment (T1.1). Values arrive from an LLM, so the model
+// Resume-derived enrichment. Values originate from an LLM, so the model
 // re-validates rather than trusting its caller. Merge rule is FILL-NULLS-ONLY:
 // a value already on the contact is never overwritten, because a later, leaner
-// resume must not erase signal captured from an earlier, richer one (R3).
+// resume must not erase signal captured from an earlier, richer one.
 // ---------------------------------------------------------------------------
 
 const MAXIMUM_LOCATION_CHARACTERS = 200;
@@ -86,10 +88,10 @@ const MAXIMUM_LOCATION_CHARACTERS = 200;
 const ENRICHABLE_URL_HOSTS = { linkedinUrl: 'linkedin.com', githubUrl: 'github.com', portfolioUrl: null };
 const ENRICHABLE_FIELDS = ['linkedinUrl', 'githubUrl', 'portfolioUrl', 'location'];
 
-/** Trimmed non-empty string, else null — '' and whitespace-only count as missing (C9, R5). */
+/** Trimmed non-empty string, else null — '' and whitespace-only count as missing. */
 const trimmedOrNull = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);
 
-/** An absolute http(s) URL, optionally host-constrained. Anything else → null (C10, R2). */
+/** An absolute http(s) URL, optionally host-constrained. Anything else → null. */
 function normalizeEnrichmentUrl(value, requiredHostFragment = null) {
   const raw = trimmedOrNull(value);
   if (!raw || !/^https?:\/\//i.test(raw)) return null;
@@ -103,7 +105,7 @@ function normalizeEnrichmentUrl(value, requiredHostFragment = null) {
   return raw;
 }
 
-/** Trimmed location, truncated to 200 chars (C11). */
+/** Trimmed location, truncated to 200 chars. */
 function normalizeEnrichmentLocation(value) {
   const raw = trimmedOrNull(value);
   return raw ? raw.slice(0, MAXIMUM_LOCATION_CHARACTERS) : null;
@@ -121,9 +123,9 @@ const isFillable = (value) => value === null || value === undefined
   || (typeof value === 'string' && !value.trim());
 
 /**
- * Fill only the contact's missing enrichable fields from `fields` (§6.5 — the
- * write filter carries companyId). Returns the contact unchanged when nothing
- * qualifies, and null when the contact does not exist for this company.
+ * Fill only the contact's missing enrichable fields from `fields` (§6.5 — the write
+ * filter carries companyId). Returns the contact unchanged when nothing qualifies,
+ * and null when the contact does not exist for this company (cross-tenant included).
  */
 export async function mergeContactEnrichmentForCompany(companyId, contactId, fields = {}) {
   const current = await getContactForCompany(companyId, contactId);

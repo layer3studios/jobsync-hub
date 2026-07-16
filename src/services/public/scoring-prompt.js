@@ -69,10 +69,9 @@ function parseJson(raw) {
 const MAXIMUM_LOCATION_CHARACTERS = 200;
 
 /**
- * An LLM-supplied absolute http(s) URL, optionally host-constrained (C10, R2).
- * Anything that fails — wrong scheme, unparseable, wrong host — becomes null
- * SILENTLY: Gemma hallucinates occasionally, and one bad URL must never break
- * scoring or the applicant detail view.
+ * An LLM-supplied absolute http(s) URL, optionally host-constrained. Anything that
+ * fails — wrong scheme, unparseable, wrong host — becomes null SILENTLY: Gemma
+ * hallucinates occasionally, and one bad URL must never break scoring.
  */
 export function validateExtractedUrl(raw, mustIncludeHost = null) {
   if (typeof raw !== 'string') return null;
@@ -88,14 +87,14 @@ export function validateExtractedUrl(raw, mustIncludeHost = null) {
   return trimmed;
 }
 
-/** Trimmed location capped at 200 chars; empty/whitespace-only → null (C11, D8). */
+/** Trimmed location capped at 200 chars; empty/whitespace-only → null. */
 export function validateExtractedLocation(raw) {
   if (typeof raw !== 'string') return null;
   const trimmed = raw.trim();
   return trimmed ? trimmed.slice(0, MAXIMUM_LOCATION_CHARACTERS) : null;
 }
 
-/** Map + validate Gemma's contact_fields block. Absent or malformed → null (C12). */
+/** Map + validate Gemma's contact_fields block. Absent or malformed → null. */
 function parseContactFields(rawContactFields) {
   const isPlainObject = rawContactFields != null
     && typeof rawContactFields === 'object'
@@ -111,8 +110,8 @@ function parseContactFields(rawContactFields) {
 
 /**
  * Map Gemma's snake_case response into the camelCase score data shape.
- * `contactFields` is returned alongside — the caller peels it off so it never
- * reaches upsertResumeScore (D7).
+ * `contactFields` rides alongside — the caller peels it off so it never reaches
+ * upsertResumeScore.
  */
 export function parseScoreResponse(raw) {
   const parsed = parseJson(raw);

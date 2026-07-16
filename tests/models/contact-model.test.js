@@ -62,8 +62,9 @@ test('getContactForCompany is cross-tenant safe', async () => {
   assert.equal(await getContactForCompany(COMPANY_B, contact._id), null);
 });
 
-// D9(a)
-test('mergeContactEnrichment fills null fields', async () => {
+// ─── Resume enrichment merge (Chunk 2) ────────────────────────────────
+
+test('mergeContactEnrichment fills a currently-null field', async () => {
   const { contact } = await findOrCreateContactForCompany(COMPANY_A, { email: 'fill@x.com' });
   const merged = await mergeContactEnrichmentForCompany(COMPANY_A, contact._id, FULL_ENRICHMENT);
   assert.equal(merged.linkedinUrl, 'https://www.linkedin.com/in/asha-rao');
@@ -72,8 +73,7 @@ test('mergeContactEnrichment fills null fields', async () => {
   assert.equal(merged.location, 'Bangalore, India');
 });
 
-// D9(b) — the fill-nulls-only rule.
-test('mergeContactEnrichment does NOT overwrite an existing non-null field', async () => {
+test('mergeContactEnrichment does NOT overwrite a currently non-null field', async () => {
   const { contact } = await findOrCreateContactForCompany(COMPANY_A, {
     email: 'keep@x.com', linkedinUrl: 'https://linkedin.com/in/original', location: 'Pune',
   });
@@ -83,8 +83,7 @@ test('mergeContactEnrichment does NOT overwrite an existing non-null field', asy
   assert.equal(merged.githubUrl, 'https://github.com/asharao', 'null field still filled');
 });
 
-// D9(c)
-test('mergeContactEnrichment treats an existing empty/whitespace string as null and fills it', async () => {
+test('mergeContactEnrichment treats a currently empty/whitespace field as null and fills it', async () => {
   const { contact } = await findOrCreateContactForCompany(COMPANY_A, {
     email: 'empty@x.com', linkedinUrl: '', location: '   ',
   });
@@ -93,28 +92,28 @@ test('mergeContactEnrichment treats an existing empty/whitespace string as null 
   assert.equal(merged.location, 'Bangalore, India');
 });
 
-// D9(d)
-test('mergeContactEnrichment treats an incoming empty string as null (no-op)', async () => {
-  const { contact } = await findOrCreateContactForCompany(COMPANY_A, { email: 'incoming@x.com' });
-  const merged = await mergeContactEnrichmentForCompany(COMPANY_A, contact._id, {
-    linkedinUrl: '', githubUrl: '   ', portfolioUrl: '', location: '  ',
+test('mergeContactEnrichment treats an incoming empty/whitespace value as null (no overwrite)', async () => {
+  const { contact } = await findOrCreateContactForCompany(COMPANY_A, {
+    email: 'incoming@x.com', linkedinUrl: 'https://linkedin.com/in/keep',
   });
-  assert.equal(merged.linkedinUrl, null);
+  const merged = await mergeContactEnrichmentForCompany(COMPANY_A, contact._id, {
+    linkedinUrl: '   ', githubUrl: '', portfolioUrl: '', location: '  ',
+  });
+  assert.equal(merged.linkedinUrl, 'https://linkedin.com/in/keep', 'not overwritten by an empty string');
   assert.equal(merged.githubUrl, null);
   assert.equal(merged.portfolioUrl, null);
   assert.equal(merged.location, null);
 });
 
-// D9(e)
 test('mergeContactEnrichment is cross-tenant safe — returns null, writes nothing', async () => {
   const { contact } = await findOrCreateContactForCompany(COMPANY_A, { email: 'tenant@x.com' });
   assert.equal(await mergeContactEnrichmentForCompany(COMPANY_B, contact._id, FULL_ENRICHMENT), null);
   const untouched = await getContactForCompany(COMPANY_A, contact._id);
   assert.equal(untouched.linkedinUrl, null);
+  assert.equal(untouched.githubUrl, null);
 });
 
-// D9(f) — an all-null merge must not issue a write at all.
-test('mergeContactEnrichment with nothing to fill returns the contact and skips the write', async () => {
+test('mergeContactEnrichment with all-null incoming returns the contact and skips the write', async () => {
   const { contact } = await findOrCreateContactForCompany(COMPANY_A, { email: 'noop@x.com' });
   const before = await getContactForCompany(COMPANY_A, contact._id);
   const merged = await mergeContactEnrichmentForCompany(COMPANY_A, contact._id, {
@@ -125,7 +124,7 @@ test('mergeContactEnrichment with nothing to fill returns the contact and skips 
   assert.equal(merged.updatedAt.getTime(), before.updatedAt.getTime());
 });
 
-test('mergeContactEnrichment drops invalid URLs and truncates a long location', async () => {
+test('mergeContactEnrichment re-validates its input: bad URLs dropped, long location truncated', async () => {
   const { contact } = await findOrCreateContactForCompany(COMPANY_A, { email: 'guard@x.com' });
   const merged = await mergeContactEnrichmentForCompany(COMPANY_A, contact._id, {
     linkedinUrl: 'https://github.com/not-linkedin', // wrong host
@@ -139,13 +138,12 @@ test('mergeContactEnrichment drops invalid URLs and truncates a long location', 
   assert.equal(merged.location.length, 200);
 });
 
-// D9(g)
-test('toPublicContact exposes githubUrl and portfolioUrl, null when absent', async () => {
+test('toPublicContact returns githubUrl and portfolioUrl, null when the doc lacks them', async () => {
   const { contact } = await findOrCreateContactForCompany(COMPANY_A, { email: 'shape@x.com' });
   const shaped = toPublicContact(contact);
   assert.equal(shaped.githubUrl, null);
   assert.equal(shaped.portfolioUrl, null);
-  // A legacy contact doc predating this change has neither field at all.
+  // A legacy contact doc predating this change carries neither field at all.
   const legacy = toPublicContact({ _id: new ObjectId(), email: 'legacy@x.com', firstSeenAt: new Date() });
   assert.equal(legacy.githubUrl, null);
   assert.equal(legacy.portfolioUrl, null);

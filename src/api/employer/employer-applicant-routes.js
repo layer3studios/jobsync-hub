@@ -10,7 +10,11 @@ import { requireEmployerApplicant } from '../../middleware/require-employer-appl
 import { getApplicantDetailForCompany } from '../../services/employer/applicant-detail-service.js';
 import { moveApplicantToStage } from '../../services/employer/applicant-move-service.js';
 import { archiveApplicant, unarchiveApplicant, bulkArchiveApplicants } from '../../services/employer/applicant-archive-service.js';
+import { rescoreApplicantForCompany } from '../../services/employer/rescore-service.js';
 import { signResumeToken, RESUME_URL_TTL_MS } from '../../services/employer/signed-url-service.js';
+import {
+  createApplicantNoteForApplicant, listApplicantNotesForApplicant,
+} from '../../services/employer/applicant-notes-service.js';
 
 const router = Router();
 
@@ -58,6 +62,13 @@ router.post('/:applicationId/unarchive', requireEmployerApplicant, asyncHandler(
   res.json(result);
 }));
 
+// POST /api/employer/applicants/:applicationId/rescore — requeue AI scoring.
+// 202 when a job was reset or inserted; 200 when one was already in flight (C9/C10).
+router.post('/:applicationId/rescore', requireEmployerApplicant, asyncHandler(async (req, res) => {
+  const result = await rescoreApplicantForCompany(req.employerCompanyId, req.application._id);
+  res.status(result.rescored ? 202 : 200).json(result);
+}));
+
 // GET /api/employer/applicants/:applicationId/resume-url — signed 15-min URL.
 router.get('/:applicationId/resume-url', requireEmployerApplicant, asyncHandler(async (req, res) => {
   const token = signResumeToken(req.application._id, RESUME_URL_TTL_MS);
@@ -65,6 +76,20 @@ router.get('/:applicationId/resume-url', requireEmployerApplicant, asyncHandler(
     url: `/api/public/resume-download?token=${token}`,
     expiresAt: new Date(Date.now() + RESUME_URL_TTL_MS),
   });
+}));
+
+// GET /api/employer/applicants/:applicationId/notes — newest first (C3/D5).
+router.get('/:applicationId/notes', requireEmployerApplicant, asyncHandler(async (req, res) => {
+  const notes = await listApplicantNotesForApplicant(req.employerCompanyId, req.application._id);
+  res.json({ notes });
+}));
+
+// POST /api/employer/applicants/:applicationId/notes — { body }. 201 with the new note.
+router.post('/:applicationId/notes', requireEmployerApplicant, asyncHandler(async (req, res) => {
+  const note = await createApplicantNoteForApplicant(
+    req.employerCompanyId, req.application._id, req.employerUser.employerUserId, req.body?.body,
+  );
+  res.status(201).json({ note });
 }));
 
 export default router;
