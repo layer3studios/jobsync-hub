@@ -11,6 +11,7 @@ import { getContactForCompany, toPublicContact } from '../../models/public/conta
 import { getResumeScoreForApplication, toPublicResumeScore } from '../../models/public/resume-score-model.js';
 import { listStageChangesForApplication } from '../../models/public/stage-change-model.js';
 import { getResumeFileForApplication } from '../../models/public/resume-file-model.js';
+import { getScoreJobStatusForApplication } from '../public/resume-score-queue-service.js';
 import { toEmployerApplication, toEmployerStageChange, toResumeMeta } from './applicant-mappers.js';
 import { signResumeToken } from './signed-url-service.js';
 
@@ -23,6 +24,9 @@ export async function getApplicantDetailForCompany(companyId, applicationId) {
   const score = await getResumeScoreForApplication(application._id);
   const stageChanges = await listStageChangesForApplication(application._id);
   const resumeFile = await getResumeFileForApplication(application._id);
+  // Queue lifecycle, separate axis from score.processingError — lets the UI show
+  // "Rescoring…" while a job is queued/processing. null when no job doc exists.
+  const scoreJobStatus = await getScoreJobStatusForApplication(application._id);
 
   const resumeMeta = resumeFile ? toResumeMeta(resumeFile) : null;
   const resumeDownloadUrl = resumeMeta
@@ -33,6 +37,7 @@ export async function getApplicantDetailForCompany(companyId, applicationId) {
     application: toEmployerApplication(application),
     contact: contact ? toPublicContact(contact) : null,
     score: score ? toPublicResumeScore(score) : null,
+    scoreJobStatus,
     stageChanges: stageChanges.map(toEmployerStageChange),
     resumeMeta,
     resumeDownloadUrl,
