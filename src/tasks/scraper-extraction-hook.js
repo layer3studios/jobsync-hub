@@ -5,9 +5,14 @@
 // breaks the loop or the scraper. Dependencies are injectable for tests.
 
 import { extractAndStoreRequirements as defaultExtract } from '../gemma/background-extractor.js';
-import { getGemmaClient as defaultGetGemmaClient } from '../gemma/gemma-runtime.js';
+import { getScraperGemmaClient as defaultGetGemmaClient } from '../gemma/gemma-runtime.js';
 
-/** Extract requirements for each new job when Gemma is configured. No-op otherwise. */
+/**
+ * Extract requirements for each new job when Gemma is configured. No-op otherwise.
+ * This is THE batch caller: it resolves the scraper pool's client once and passes
+ * it down explicitly, because extractAndStoreRequirements would otherwise default
+ * to the real-time scoring pool and this loop would eat scoring quota.
+ */
 export async function runExtractionForNewJobs(siteName, newJobs, deps = {}) {
   const {
     getGemmaClient = defaultGetGemmaClient,
@@ -15,12 +20,13 @@ export async function runExtractionForNewJobs(siteName, newJobs, deps = {}) {
   } = deps;
 
   if (!Array.isArray(newJobs) || newJobs.length === 0) return;
-  if (!getGemmaClient()) return;
+  const client = getGemmaClient();
+  if (!client) return;
 
   console.log(`[${siteName}] extracting requirements for ${newJobs.length} new jobs`);
   for (const job of newJobs) {
     try {
-      await extractAndStoreRequirements(job);
+      await extractAndStoreRequirements(job, client);
     } catch (err) {
       console.warn(`[gemma] extraction failed for ${job.JobID}: ${err.message}`);
     }

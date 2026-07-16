@@ -12,7 +12,7 @@ import { upsertResumeScore } from '../../models/public/resume-score-model.js';
 import { mergeContactEnrichmentForCompany as defaultMergeContactEnrichment } from '../../models/public/contact-model.js';
 import { getResumeBuffer as defaultGetResumeBuffer } from './resume-storage-service.js';
 import { extractTextFromPDF as defaultExtractText } from '../seeker/resume-text-extractor.js';
-import { getGemmaClient as defaultGetGemmaClient } from '../../gemma/gemma-runtime.js';
+import { getScoringGemmaClient as defaultGetGemmaClient } from '../../gemma/gemma-runtime.js';
 import { buildScoringSystemPrompt, parseScoreResponse } from './scoring-prompt.js';
 
 const MINIMUM_RESUME_TEXT_LENGTH = 200;
@@ -98,8 +98,8 @@ export async function scoreApplication(applicationId, deps = {}) {
 
     // Best-effort enrichment. A merge failure must never become a scoring failure,
     // so it is caught here rather than falling through to the outer handler — that
-    // would overwrite a good score row with a processingError. No PII is logged (C10).
-    if (hasAnyContactField(contactFields)) {
+    // would overwrite a good score row with a processingError. No PII is logged.
+    if (hasAnyContactField(contactFields) && application.contactId) {
       try {
         await mergeContactEnrichment(application.companyId, application.contactId, contactFields);
       } catch (mergeError) {
