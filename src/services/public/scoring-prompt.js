@@ -26,8 +26,16 @@ const RESPONSE_SHAPE = `Return ONLY valid JSON:
   "experience_fit": "<strong|good|weak|overqualified>",
   "location_fit": "<exact|same_state|remote_compatible|relocation>",
   "notice_period_fit": "<immediate|within_30|within_60|long_notice|unknown>",
-  "explanation": "<2-3 sentences, max 500 chars, specific>"
+  "explanation": "<2-3 sentences, max 500 chars, specific>",
+  "contact_fields": {
+    "linkedin_url": <string|null>,
+    "github_url": <string|null>,
+    "portfolio_url": <string|null>,
+    "location": <string|null>
+  }
 }`;
+
+const CONTACT_INSTRUCTION = 'Extract contact_fields ONLY from what appears in the resume text. Do not infer. Return null for anything not found. Return the URLs exactly as they appear.';
 
 /** Assemble the system instruction for one candidate scoring call. */
 export function buildScoringSystemPrompt(parsedRequirements, resumeText) {
@@ -43,6 +51,8 @@ ${truncatedResume}
 
 ${RUBRIC}
 
+${CONTACT_INSTRUCTION}
+
 ${RESPONSE_SHAPE}`;
 }
 
@@ -56,10 +66,57 @@ function parseJson(raw) {
   }
 }
 
-/** Map Gemma's snake_case response into the camelCase score data shape. */
+const MAXIMUM_LOCATION_CHARACTERS = 200;
+
+/**
+ * An LLM-supplied absolute http(s) URL, optionally host-constrained. Anything that
+ * fails — wrong scheme, unparseable, wrong host — becomes null SILENTLY: Gemma
+ * hallucinates occasionally, and one bad URL must never break scoring.
+ */
+export function validateExtractedUrl(raw, mustIncludeHost = null) {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed || !/^https?:\/\//i.test(trimmed)) return null;
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (mustIncludeHost && !parsed.hostname.toLowerCase().includes(mustIncludeHost)) return null;
+  return trimmed;
+}
+
+/** Trimmed location capped at 200 chars; empty/whitespace-only → null. */
+export function validateExtractedLocation(raw) {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  return trimmed ? trimmed.slice(0, MAXIMUM_LOCATION_CHARACTERS) : null;
+}
+
+/** Map + validate Gemma's contact_fields block. Absent or malformed → null (C8). */
+function parseContactFields(rawContactFields) {
+  const isPlainObject = rawContactFields != null
+    && typeof rawContactFields === 'object'
+    && !Array.isArray(rawContactFields);
+  if (!isPlainObject) return null;
+  return {
+    linkedinUrl: validateExtractedUrl(rawContactFields.linkedin_url, 'linkedin.com'),
+    githubUrl: validateExtractedUrl(rawContactFields.github_url, 'github.com'),
+    portfolioUrl: validateExtractedUrl(rawContactFields.portfolio_url),
+    location: validateExtractedLocation(rawContactFields.location),
+  };
+}
+
+/**
+ * Map Gemma's snake_case response into the camelCase score data shape.
+ * `contactFields` rides alongside — the caller peels it off so it never reaches
+ * upsertResumeScore.
+ */
 export function parseScoreResponse(raw) {
   const parsed = parseJson(raw);
   return {
+    contactFields: parseContactFields(parsed.contact_fields),
     score: parsed.score,
     matchedSkills: parsed.matched_skills,
     missingSkills: parsed.missing_skills,
