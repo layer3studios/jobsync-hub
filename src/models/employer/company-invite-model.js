@@ -150,3 +150,51 @@ export async function markInviteExpired(inviteId) {
     { returnDocument: 'after' },
   );
 }
+
+/** URL-safe 43-char (256-bit) token (C9). New invites use this; hex stays for compat. */
+export function generateInviteTokenUrlSafe() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+/** An invite by id, scoped to a company (cross-tenant safe). Null when absent. */
+export async function findCompanyInviteById(companyId, inviteId) {
+  const companyOid = toOid(companyId); const oid = toOid(inviteId);
+  if (!companyOid || !oid) return null;
+  return (await invitesCol()).findOne({ _id: oid, companyId: companyOid });
+}
+
+/** Atomically revoke a pending|expired invite (stamps revokedAt). Null when no match. */
+export async function revokeCompanyInvite(companyId, inviteId) {
+  const companyOid = toOid(companyId); const oid = toOid(inviteId);
+  if (!companyOid || !oid) return null;
+  const now = new Date();
+  return (await invitesCol()).findOneAndUpdate(
+    { _id: oid, companyId: companyOid, status: { $in: ['pending', 'expired'] } },
+    { $set: { status: 'revoked', revokedAt: now, updatedAt: now } },
+    { returnDocument: 'after' },
+  );
+}
+
+/** Atomically replace a PENDING invite's token + expiry (resend). Null when not pending. */
+export async function regenerateInviteToken(companyId, inviteId) {
+  const companyOid = toOid(companyId); const oid = toOid(inviteId);
+  if (!companyOid || !oid) return null;
+  const now = new Date();
+  return (await invitesCol()).findOneAndUpdate(
+    { _id: oid, companyId: companyOid, status: 'pending' },
+    { $set: { token: generateInviteTokenUrlSafe(), expiresAt: defaultInviteExpiry(now), updatedAt: now } },
+    { returnDocument: 'after' },
+  );
+}
+
+/** Atomically accept a PENDING invite by token (serializes accept races, A8). */
+export async function acceptPendingInviteByToken(token, acceptedByEmployerUserId) {
+  if (typeof token !== 'string' || !token) return null;
+  const acceptorOid = toOid(acceptedByEmployerUserId);
+  const now = new Date();
+  return (await invitesCol()).findOneAndUpdate(
+    { token, status: 'pending' },
+    { $set: { status: 'accepted', acceptedAt: now, acceptedByEmployerUserId: acceptorOid, updatedAt: now } },
+    { returnDocument: 'after' },
+  );
+}

@@ -16,6 +16,7 @@ import {
   ensureEmployerUserIndexes, findOrCreateEmployerGoogleUser, linkCompanyToEmployerUser,
   ensureCompanyIndexes, createCompany,
   ensureCompanyMemberIndexes, insertCompanyMember,
+  ensureCompanyInviteIndexes,
 } from '../../src/models/employer/index.js';
 
 function buildApp() {
@@ -31,10 +32,11 @@ before(async () => { await reset(); });
 beforeEach(async () => { await reset(); });
 after(async () => { await closeTestDb(); });
 async function reset() {
-  await dropCollections('employer_users', 'companies', 'company_members');
+  await dropCollections('employer_users', 'companies', 'company_members', 'company_invites');
   await ensureEmployerUserIndexes();
   await ensureCompanyIndexes();
   await ensureCompanyMemberIndexes();
+  await ensureCompanyInviteIndexes();
 }
 
 function cookieFor(user) {
@@ -100,4 +102,111 @@ test('GET /team/invites with a Founder session → 200 with empty list', async (
   const res = await request(buildApp()).get('/api/employer/team/invites').set('Cookie', cookie);
   assert.equal(res.status, 200);
   assert.deepEqual(res.body.invites, []);
+});
+
+// ─── Chunk 2: invite write endpoints (create / revoke / resend) ─────────────
+const createInviteAs = (cookie, body) => request(buildApp()).post('/api/employer/team/invites').set('Cookie', cookie).send(body);
+
+test('POST /invites: 401 without auth', async () => {
+  const res = await request(buildApp()).post('/api/employer/team/invites').send({ email: 'x@acme.com', role: 'member' });
+  assert.equal(res.status, 401);
+});
+
+test('POST /invites: 403 as Member', async () => {
+  const { cookie } = await setup('m1', 'member');
+  const res = await createInviteAs(cookie, { email: 'x@acme.com', role: 'member' });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'INSUFFICIENT_ROLE');
+});
+
+test('POST /invites: 403 as Interviewer', async () => {
+  const { cookie } = await setup('i1', 'interviewer');
+  const res = await createInviteAs(cookie, { email: 'x@acme.com', role: 'member' });
+  assert.equal(res.status, 403);
+});
+
+test('POST /invites: 201 as Owner; inviteUrl contains the token', async () => {
+  const { cookie } = await setup('o1', 'owner');
+  const res = await createInviteAs(cookie, { email: 'teammate@acme.com', role: 'member' });
+  assert.equal(res.status, 201);
+  assert.ok(res.body.invite.token);
+  assert.ok(res.body.inviteUrl.includes(res.body.invite.token));
+});
+
+test('POST /invites: 201 as Founder with role=owner', async () => {
+  const { cookie } = await setup('f1', 'founder');
+  const res = await createInviteAs(cookie, { email: 'newowner@acme.com', role: 'owner' });
+  assert.equal(res.status, 201);
+  assert.equal(res.body.invite.role, 'owner');
+});
+
+test('POST /invites: 409 on duplicate pending; includes existingInviteId', async () => {
+  const { cookie } = await setup('o2', 'owner');
+  const first = await createInviteAs(cookie, { email: 'dup@acme.com', role: 'member' });
+  const res = await createInviteAs(cookie, { email: 'dup@acme.com', role: 'member' });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, 'INVITE_ALREADY_PENDING');
+  assert.equal(res.body.existingInviteId, first.body.invite.id);
+});
+
+test('POST /invites: 409 ALREADY_MEMBER', async () => {
+  const { cookie, companyId } = await setup('o3', 'owner');
+  const mate = await findOrCreateEmployerGoogleUser({ googleId: 'g-mate', email: 'mate@acme.com', name: 'Mate', picture: null });
+  await insertCompanyMember({ companyId, employerUserId: mate._id, role: 'member' });
+  const res = await createInviteAs(cookie, { email: 'mate@acme.com', role: 'member' });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, 'ALREADY_MEMBER');
+});
+
+test('POST /invites: 400 INVALID_EMAIL / CANNOT_INVITE_SELF / INVALID_ROLE', async () => {
+  const { cookie, user } = await setup('o4', 'owner');
+  assert.equal((await createInviteAs(cookie, { email: 'bad', role: 'member' })).body.code, 'INVALID_EMAIL');
+  assert.equal((await createInviteAs(cookie, { email: user.email, role: 'member' })).body.code, 'CANNOT_INVITE_SELF');
+  assert.equal((await createInviteAs(cookie, { email: 'y@acme.com', role: 'founder' })).body.code, 'INVALID_ROLE');
+});
+
+test('DELETE /invites/:id: 401 without auth', async () => {
+  const res = await request(buildApp()).delete('/api/employer/team/invites/deadbeefdeadbeefdeadbeef');
+  assert.equal(res.status, 401);
+});
+
+test('DELETE /invites/:id: 403 as Member', async () => {
+  const { cookie } = await setup('m2', 'member');
+  const res = await request(buildApp()).delete('/api/employer/team/invites/deadbeefdeadbeefdeadbeef').set('Cookie', cookie);
+  assert.equal(res.status, 403);
+});
+
+test('DELETE /invites/:id: 200 as Owner returns revoked invite', async () => {
+  const { cookie } = await setup('o5', 'owner');
+  const created = await createInviteAs(cookie, { email: 'rev@acme.com', role: 'member' });
+  const res = await request(buildApp()).delete(`/api/employer/team/invites/${created.body.invite.id}`).set('Cookie', cookie);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.invite.status, 'revoked');
+});
+
+test('DELETE /invites/:id: 404 for another company\'s invite (cross-tenant)', async () => {
+  const a = await setup('oa', 'owner');
+  const created = await createInviteAs(a.cookie, { email: 'ct@acme.com', role: 'member' });
+  const b = await setup('ob', 'owner');
+  const res = await request(buildApp()).delete(`/api/employer/team/invites/${created.body.invite.id}`).set('Cookie', b.cookie);
+  assert.equal(res.status, 404);
+  assert.equal(res.body.code, 'INVITE_NOT_FOUND');
+});
+
+test('POST /invites/:id/resend: 200 as Owner; new token differs from old', async () => {
+  const { cookie } = await setup('o6', 'owner');
+  const created = await createInviteAs(cookie, { email: 'res@acme.com', role: 'member' });
+  const res = await request(buildApp()).post(`/api/employer/team/invites/${created.body.invite.id}/resend`).set('Cookie', cookie).send();
+  assert.equal(res.status, 200);
+  assert.notEqual(res.body.invite.token, created.body.invite.token);
+  assert.ok(res.body.newInviteUrl.includes(res.body.invite.token));
+});
+
+test('POST /invites/:id/resend: 409 if invite already revoked', async () => {
+  const { cookie } = await setup('o7', 'owner');
+  const created = await createInviteAs(cookie, { email: 'res2@acme.com', role: 'member' });
+  await request(buildApp()).delete(`/api/employer/team/invites/${created.body.invite.id}`).set('Cookie', cookie);
+  const res = await request(buildApp()).post(`/api/employer/team/invites/${created.body.invite.id}/resend`).set('Cookie', cookie).send();
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, 'CANNOT_RESEND_NON_PENDING');
 });
