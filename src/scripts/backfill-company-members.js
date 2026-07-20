@@ -7,7 +7,9 @@
 // NOTE: the owner link on companies is `claimedByEmployerUserId` in this codebase
 // (the spec called it ownerEmployerUserId; the real field name is used here).
 // console.log is intentional — this is a stdout maintenance CLI (C5).
-// CLI: node src/scripts/backfill-company-members.js [--dry-run]
+// CLI: node src/scripts/backfill-company-members.js [--dry-run | --verify]
+//   --dry-run  report what WOULD be inserted, write nothing
+//   --verify   read-only per-company report: has Founder (Y/N), member count, orphans
 
 import { pathToFileURL } from 'node:url';
 import { connectToDb, closeDb, col } from '../Db/connection.js';
@@ -15,9 +17,29 @@ import {
   ensureCompanyMemberIndexes, findFounderForCompany, insertCompanyMember,
 } from '../models/employer/index.js';
 
+/** Read-only per-company health report (--verify). Writes nothing. */
+async function verifyReport() {
+  const companies = await (await col('companies')).find({}).toArray();
+  const members = await col('company_members');
+  const rep = { total: companies.length, withFounder: 0, withoutFounder: 0, orphanNoOwner: 0, totalMembers: 0 };
+  for (const company of companies) {
+    if (!company.claimedByEmployerUserId) rep.orphanNoOwner += 1;
+    const founder = await members.findOne({ companyId: company._id, isFounder: true });
+    const count = await members.countDocuments({ companyId: company._id });
+    rep.totalMembers += count;
+    if (founder) rep.withFounder += 1; else rep.withoutFounder += 1;
+    console.log(`[verify] company ${company._id} founder=${founder ? 'Y' : 'N'} members=${count}${company.claimedByEmployerUserId ? '' : ' (orphan-no-owner)'}`);
+  }
+  console.log(`[verify] total=${rep.total} with-founder=${rep.withFounder} without-founder=${rep.withoutFounder} orphan-no-owner=${rep.orphanNoOwner} total-members=${rep.totalMembers}`);
+  return rep;
+}
+
 export async function main() {
-  const dryRun = process.argv.slice(2).includes('--dry-run');
+  const args = process.argv.slice(2);
+  const dryRun = args.includes('--dry-run');
+  const verify = args.includes('--verify');
   await connectToDb();
+  if (verify) return verifyReport();
   await ensureCompanyMemberIndexes();
 
   const companies = await (await col('companies')).find({}).toArray();

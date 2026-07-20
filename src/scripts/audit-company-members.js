@@ -54,6 +54,17 @@ export async function main() {
     founderOwnerDrift: founderDrift,
   };
 
+  // ── Pending invites (informational; D8 — no auto-sweep here) ──────────────
+  const invitesCol = await col('company_invites');
+  const now = new Date();
+  const companyIds = new Set((await companiesCol.find({}, { projection: { _id: 1 } }).toArray()).map((c) => c._id.toString()));
+  const pendingInvites = await invitesCol.find({ status: 'pending' }).toArray();
+  const expiredButPending = pendingInvites.filter((i) => i.expiresAt instanceof Date && i.expiresAt < now).length;
+  const orphanCompanyInvites = pendingInvites.filter((i) => !companyIds.has(i.companyId?.toString())).length;
+  report.pendingInvites = pendingInvites.length;
+  report.pendingInvitesExpired = expiredButPending;
+  report.pendingInvitesOrphanCompany = orphanCompanyInvites;
+
   console.log('[audit] company_members');
   console.log(`  total_companies            : ${report.totalCompanies}`);
   console.log(`  companies_zero_founders    : ${report.companiesWithZeroFounders}  (expect 0 after backfill)`);
@@ -62,6 +73,10 @@ export async function main() {
   console.log(`  role_distribution          : ${JSON.stringify(report.roleDistribution)}`);
   console.log(`  duplicate_pairs            : ${report.duplicatePairs}  (expect 0)`);
   console.log(`  founder_vs_owner_drift     : ${report.founderOwnerDrift}  (expect 0 immediately after backfill)`);
+  console.log('[audit] company_invites (pending)');
+  console.log(`  pending_total              : ${report.pendingInvites}`);
+  console.log(`  expired_but_still_pending  : ${report.pendingInvitesExpired}  (a future sweep would flip these to 'expired')`);
+  console.log(`  in_orphan_companies        : ${report.pendingInvitesOrphanCompany}  (companyId no longer exists)`);
   return report;
 }
 

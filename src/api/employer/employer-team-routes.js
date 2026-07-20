@@ -10,12 +10,13 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../middleware/async-handler-middleware.js';
 import {
-  requireInterviewerOrHigher, requireOwnerOrHigher,
+  requireInterviewerOrHigher, requireOwnerOrHigher, requireFounder,
 } from '../../middleware/require-company-role-middleware.js';
 import { getTeamMembersForCompany, getPendingInvitesForCompany } from '../../services/employer/team-service.js';
 import {
   createInvite, revokeInvite, resendInvite, acceptInvite,
 } from '../../services/employer/invite-service.js';
+import { patchMember, removeMember, transferFounder } from '../../services/employer/member-management-service.js';
 
 const router = Router();
 
@@ -77,6 +78,32 @@ router.post('/invites/:inviteId/resend', requireOwnerOrHigher, asyncHandler(asyn
     invite: toInviteResponse(invite, { includeToken: true }),
     newInviteUrl: acceptanceUrl,
   });
+}));
+
+// PATCH /members/:memberId — change role / interviewer flags. Owner+ only (self-role
+// change is forbidden inside the service). Cannot target the Founder.
+router.patch('/members/:memberId', requireOwnerOrHigher, asyncHandler(async (req, res) => {
+  const updated = await patchMember(req.employerCompanyId, req.params.memberId, req.body || {}, {
+    actorEmployerUserId: req.employerUser.employerUserId,
+  });
+  res.json({ member: toMemberResponse(updated) });
+}));
+
+// DELETE /members/:memberId — remove a member. Gated at Interviewer+ so a member can
+// remove THEMSELVES (D3); the service enforces Owner+ for removing anyone else.
+router.delete('/members/:memberId', requireInterviewerOrHigher, asyncHandler(async (req, res) => {
+  const result = await removeMember(req.employerCompanyId, req.params.memberId, {
+    actorRole: req.companyMemberRole, actorEmployerUserId: req.employerUser.employerUserId,
+  });
+  res.json(result);
+}));
+
+// POST /transfer-founder — { toMemberId }. Founder only; target must be an Owner.
+router.post('/transfer-founder', requireFounder, asyncHandler(async (req, res) => {
+  const result = await transferFounder(req.employerCompanyId, req.body?.toMemberId, {
+    actorEmployerUserId: req.employerUser.employerUserId,
+  });
+  res.json(result);
 }));
 
 // Separate router for accept — auth only, NOT company-scoped (see header / D2).
