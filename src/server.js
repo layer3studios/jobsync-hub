@@ -17,6 +17,8 @@ import {
   ensureStageIndexes,
   ensureArchiveReasonIndexes,
   ensurePostingIndexes,
+  ensureCompanyMemberIndexes,
+  ensureCompanyInviteIndexes,
 } from './models/employer/index.js';
 
 import {
@@ -41,6 +43,7 @@ import employerPostingsRouter from './api/employer/employer-postings-routes.js';
 import employerApplicantRouter from './api/employer/employer-applicant-routes.js';
 import employerStagesRouter from './api/employer/employer-stages-routes.js';
 import employerArchiveReasonsRouter from './api/employer/employer-archive-reasons-routes.js';
+import employerTeamRouter from './api/employer/employer-team-routes.js';
 import resumeDownloadRouter from './api/public/resume-download-route.js';
 import dpdpRouter from './api/dpdp/dpdp-routes.js';
 import seekerResumeRouter from './api/seeker/seeker-resume-routes.js';
@@ -91,6 +94,7 @@ app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerP
 app.use('/api/employer/applicants', requireEmployer, requireEmployerCompany, employerApplicantRouter);
 app.use('/api/employer/stages', requireEmployer, requireEmployerCompany, employerStagesRouter);
 app.use('/api/employer/archive-reasons', requireEmployer, requireEmployerCompany, employerArchiveReasonsRouter);
+app.use('/api/employer/team', requireEmployer, requireEmployerCompany, employerTeamRouter);
 app.use('/api/dpdp', dpdpRouter); // per-route guards (D9) — /notice-version is public
 app.use('/api/public/resume-download', resumeDownloadRouter); // signed-token PDF stream (before the apply catch-all)
 app.use('/api/public', publicApplyRouter); // unauthenticated candidate apply pages
@@ -111,6 +115,8 @@ const server = app.listen(PORT, async () => {
     await ensureStageIndexes();
     await ensureArchiveReasonIndexes();
     await ensurePostingIndexes();
+    await ensureCompanyMemberIndexes();
+    await ensureCompanyInviteIndexes();
     await ensureConsentIndexes();
     await ensureAuditLogIndexes();
     await ensureRightsRequestIndexes();
