@@ -1,7 +1,7 @@
 // FILE: src/api/admin/employer-access-routes.js
 // Admin endpoints for the employer signup gate: read state, flip the global
 // toggle, and manage the email whitelist. Mounted under /api/admin behind
-// requireSeeker + requireAdmin (applied by the parent admin router).
+// requireAdmin (jm_admin_token, applied by the parent admin router).
 
 import { Router } from 'express';
 import {
