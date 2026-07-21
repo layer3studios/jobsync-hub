@@ -27,6 +27,8 @@ import {
   ensureRightsRequestIndexes,
 } from './models/dpdp/index.js';
 
+import { ensureAdminUserIndexes } from './models/admin/index.js';
+
 import { initGemma } from './gemma/index.js';
 
 import { runScraper } from './tasks/runScraper.js';
@@ -36,6 +38,7 @@ import meRouter from './api/seeker/seeker-me-routes.js';
 import { jobsApiRouter } from './api/seeker/seeker-jobs-routes.js';
 import usersRouter from './api/seeker/seeker-users-routes.js';
 import adminRouter from './api/admin/admin-routes.js';
+import { createAdminAuthRouter } from './api/admin/admin-auth-routes.js';
 import newsRouter from './api/seeker/news-routes.js';
 import { createEmployerAuthRouter } from './api/employer/employer-auth-routes.js';
 import employerCompanyRouter from './api/employer/employer-company-routes.js';
@@ -84,6 +87,9 @@ app.use('/api/seeker/auth', authRouter);
 app.use('/api/seeker/me', requireSeeker, meRouter);
 app.use('/api/seeker/jobs', jobsApiRouter);
 app.use('/api/seeker/users', usersRouter); // legacy 410 wildcard
+// Admin auth (jm_admin_token). MUST mount before /api/admin so /api/admin/auth/*
+// is not gated by requireAdmin (a user with no admin session must be able to log in).
+app.use('/api/admin/auth', createAdminAuthRouter());
 app.use('/api/admin', adminRouter);
 app.use('/api/seeker/news', newsRouter);
 app.use('/api/seeker/resume', requireSeeker, requireConsentForPurpose('resume_parsing'), seekerResumeRouter);
@@ -115,6 +121,7 @@ const server = app.listen(PORT, async () => {
     await ensureUserIndexes();
     await ensureJobIndexes();
     await ensureEmployerUserIndexes();
+    await ensureAdminUserIndexes();
     await ensureEmployerAccessIndexes();
     await ensureCompanyIndexes();
     await ensureStageIndexes();
