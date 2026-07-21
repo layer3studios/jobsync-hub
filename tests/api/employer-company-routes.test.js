@@ -15,7 +15,16 @@ import { createEmployerAuthRouter } from '../../src/api/employer/employer-auth-r
 import employerCompanyRouter from '../../src/api/employer/employer-company-routes.js';
 import {
   ensureCompanyIndexes, ensureEmployerUserIndexes, findOrCreateEmployerGoogleUser,
+  ensureCompanyMemberIndexes, insertCompanyMember, linkCompanyToEmployerUser,
 } from '../../src/models/employer/index.js';
+import { col } from '../../src/Db/connection.js';
+
+/** After onboarding (which does not yet create a membership), seed the creator as
+ *  Founder so the newly role-gated GET/PATCH company routes admit them. */
+async function seedFounderFor(email) {
+  const user = await (await col('employer_users')).findOne({ email });
+  await insertCompanyMember({ companyId: user.companyId, employerUserId: user._id, role: 'founder', isFounder: true });
+}
 
 function buildApp() {
   const app = express();
@@ -37,8 +46,8 @@ before(async () => { await reset(); });
 beforeEach(async () => { await reset(); });
 after(async () => { await closeTestDb(); });
 async function reset() {
-  await dropCollections('companies', 'stages', 'archive_reasons', 'employer_users');
-  await ensureCompanyIndexes(); await ensureEmployerUserIndexes();
+  await dropCollections('companies', 'stages', 'archive_reasons', 'employer_users', 'company_members');
+  await ensureCompanyIndexes(); await ensureEmployerUserIndexes(); await ensureCompanyMemberIndexes();
 }
 
 test('POST requires a cookie (401 without)', async () => {
@@ -79,6 +88,7 @@ test('GET returns 404 NO_COMPANY before onboarding, then the company after', asy
   assert.equal(before.status, 404);
   assert.equal(before.body.code, 'NO_COMPANY');
   await request(app).post('/api/employer/company').set('Cookie', cookie).send({ name: 'Bolt' });
+  await seedFounderFor('od@acme.com');
   const after = await request(app).get('/api/employer/company').set('Cookie', cookie);
   assert.equal(after.status, 200);
   assert.equal(after.body.company.slug, 'bolt');
@@ -88,6 +98,7 @@ test('PATCH rejects a forged companyId key and updates valid fields from the ses
   const cookie = await userCookie('e');
   const app = buildApp();
   await request(app).post('/api/employer/company').set('Cookie', cookie).send({ name: 'Acme' });
+  await seedFounderFor('oe@acme.com');
   const forged = await request(app).patch('/api/employer/company')
     .set('Cookie', cookie).send({ name: 'New', companyId: 'deadbeefdeadbeefdeadbeef' });
   assert.equal(forged.status, 400);
@@ -107,4 +118,29 @@ test('GET /me returns company:null pre-onboarding and the company after', async 
   const after = await request(app).get('/api/employer/auth/me').set('Cookie', cookie);
   assert.equal(after.body.company.slug, 'acme');
   assert.equal(after.body.employerUser.email, 'of@acme.com');
+});
+
+// ── Chunk 3: role enforcement gating on company update ───────────────────────
+let roleSeq = 0;
+async function addRoleCookie(companyId, role) {
+  roleSeq += 1;
+  const user = await findOrCreateEmployerGoogleUser({ googleId: `gr-${role}-${roleSeq}`, email: `r${role}${roleSeq}@acme.com`, name: role, picture: null });
+  await linkCompanyToEmployerUser(user._id, companyId);
+  await insertCompanyMember({ companyId, employerUserId: user._id, role, isFounder: false });
+  return `jm_employer_token=${jwt.sign({ employerUserId: user._id.toString(), email: user.email }, EMPLOYER_JWT_SECRET)}`;
+}
+
+test('gating — company update: 403 as Member, 200 as Founder (the claimer)', async () => {
+  const cookie = await userCookie('gu');
+  const app = buildApp();
+  await request(app).post('/api/employer/company').set('Cookie', cookie).send({ name: 'GateCo' });
+  await seedFounderFor('ogu@acme.com');
+  const u = await (await col('employer_users')).findOne({ email: 'ogu@acme.com' });
+  const memberCookie = await addRoleCookie(u.companyId, 'member');
+  const denied = await request(app).patch('/api/employer/company').set('Cookie', memberCookie).send({ retentionDays: 200 });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.code, 'INSUFFICIENT_ROLE');
+  const ok = await request(app).patch('/api/employer/company').set('Cookie', cookie).send({ retentionDays: 200 });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.company.retentionDays, 200);
 });

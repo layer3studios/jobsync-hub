@@ -21,6 +21,7 @@ import employerApplicantRouter from '../../src/api/employer/employer-applicant-r
 import {
   ensureCompanyIndexes, ensureEmployerUserIndexes,
   findOrCreateEmployerGoogleUser, createCompany, linkCompanyToEmployerUser,
+  insertCompanyMember, ensureCompanyMemberIndexes,
 } from '../../src/models/employer/index.js';
 
 function buildApp() {
@@ -36,6 +37,7 @@ async function onboardedCookie(tag) {
   const user = await findOrCreateEmployerGoogleUser({ googleId: `g-${tag}`, email: `o${tag}@acme.com`, name: 'Owner', picture: null });
   const company = await createCompany({ name: `Acme ${tag}` }, user._id);
   await linkCompanyToEmployerUser(user._id, company._id);
+  await insertCompanyMember({ companyId: company._id, employerUserId: user._id, role: 'founder', isFounder: true });
   const token = jwt.sign({ employerUserId: user._id.toString(), email: user.email }, EMPLOYER_JWT_SECRET);
   return { cookie: `jm_employer_token=${token}`, company };
 }
@@ -52,8 +54,8 @@ before(async () => { await reset(); });
 beforeEach(async () => { await reset(); });
 after(async () => { await closeTestDb(); });
 async function reset() {
-  await dropCollections('companies', 'employer_users', 'applications', 'contacts', 'applicant_notes');
-  await ensureCompanyIndexes(); await ensureEmployerUserIndexes();
+  await dropCollections('companies', 'company_members', 'employer_users', 'applications', 'contacts', 'applicant_notes');
+  await ensureCompanyIndexes(); await ensureEmployerUserIndexes(); await ensureCompanyMemberIndexes();
 }
 
 // The notes endpoints sit behind the same requireEmployer + requireEmployerCompany +

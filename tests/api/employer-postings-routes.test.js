@@ -17,6 +17,7 @@ import employerPostingsRouter from '../../src/api/employer/employer-postings-rou
 import {
   ensureCompanyIndexes, ensureEmployerUserIndexes, ensurePostingIndexes,
   findOrCreateEmployerGoogleUser, createCompany, linkCompanyToEmployerUser,
+  insertCompanyMember, ensureCompanyMemberIndexes,
 } from '../../src/models/employer/index.js';
 import { ensureJobIndexes } from '../../src/models/shared/job-model.js';
 
@@ -38,6 +39,7 @@ async function onboardedCookie(tag) {
   const user = await findOrCreateEmployerGoogleUser({ googleId: `g-${tag}`, email: `o${tag}@acme.com`, name: 'Owner', picture: null });
   const company = await createCompany({ name: `Acme ${tag}` }, user._id);
   await linkCompanyToEmployerUser(user._id, company._id);
+  await insertCompanyMember({ companyId: company._id, employerUserId: user._id, role: 'founder', isFounder: true });
   const token = jwt.sign({ employerUserId: user._id.toString(), email: user.email }, EMPLOYER_JWT_SECRET);
   return { cookie: `jm_employer_token=${token}`, company };
 }
@@ -46,10 +48,10 @@ before(async () => { await reset(); });
 beforeEach(async () => { await reset(); });
 after(async () => { await closeTestDb(); });
 async function reset() {
-  await dropCollections('jobs', 'companies', 'employer_users');
+  await dropCollections('jobs', 'companies', 'company_members', 'employer_users');
   // ensureJobIndexes() mirrors real server boot: `jobs` is shared with scraped
   // jobs, so its indexes must be present for these routes to be exercised honestly.
-  await ensureCompanyIndexes(); await ensureEmployerUserIndexes();
+  await ensureCompanyIndexes(); await ensureEmployerUserIndexes(); await ensureCompanyMemberIndexes();
   await ensureJobIndexes(); await ensurePostingIndexes();
 }
 
@@ -125,4 +127,32 @@ test('close then reopen drives the status state machine', async () => {
   assert.equal(closed.body.posting.status, 'closed');
   const reopened = await request(app).post(`/api/employer/jobs/${id}/reopen`).set('Cookie', cookie);
   assert.equal(reopened.body.posting.status, 'active');
+});
+
+// ── Chunk 3: role enforcement gating ─────────────────────────────────────────
+let roleSeq = 0;
+async function addRoleCookie(companyId, role, extra = {}) {
+  roleSeq += 1;
+  const user = await findOrCreateEmployerGoogleUser({ googleId: `gr-${role}-${roleSeq}`, email: `r${role}${roleSeq}@acme.com`, name: role, picture: null });
+  await linkCompanyToEmployerUser(user._id, companyId);
+  await insertCompanyMember({ companyId, employerUserId: user._id, role, isFounder: false, ...extra });
+  return `jm_employer_token=${jwt.sign({ employerUserId: user._id.toString(), email: user.email }, EMPLOYER_JWT_SECRET)}`;
+}
+
+test('gating — posting create: 403 Interviewer, 201 Member', async () => {
+  const { company } = await onboardedCookie('gpc');
+  const interviewer = await addRoleCookie(company._id, 'interviewer');
+  assert.equal((await request(buildApp()).post('/api/employer/jobs').set('Cookie', interviewer).send(VALID_BODY)).status, 403);
+  const member = await addRoleCookie(company._id, 'member');
+  assert.equal((await request(buildApp()).post('/api/employer/jobs').set('Cookie', member).send(VALID_BODY)).status, 201);
+});
+
+test('gating — posting close: 403 Interviewer, 200 Member', async () => {
+  const { cookie, company } = await onboardedCookie('gpx');
+  const created = await request(buildApp()).post('/api/employer/jobs').set('Cookie', cookie).send(VALID_BODY);
+  const id = created.body.posting.id;
+  const interviewer = await addRoleCookie(company._id, 'interviewer');
+  assert.equal((await request(buildApp()).post(`/api/employer/jobs/${id}/close`).set('Cookie', interviewer).send()).status, 403);
+  const member = await addRoleCookie(company._id, 'member');
+  assert.equal((await request(buildApp()).post(`/api/employer/jobs/${id}/close`).set('Cookie', member).send()).status, 200);
 });
