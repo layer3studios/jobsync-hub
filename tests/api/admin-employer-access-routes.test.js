@@ -6,15 +6,20 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
+import { ObjectId } from 'mongodb';
 
 import { dropCollections, closeTestDb } from '../_helpers/test-db.js';
 import adminRouter from '../../src/api/admin/admin-routes.js';
 import { errorHandler } from '../../src/middleware/error-handler-middleware.js';
 import { JWT_SECRET } from '../../src/env.js';
 import { ensureEmployerAccessIndexes } from '../../src/models/employer/index.js';
+import { ensureAdminUserIndexes, upsertAdminByEmail } from '../../src/models/admin/index.js';
 
-const ADMIN_COOKIE = `tj_token=${jwt.sign({ userId: 'admin-1', email: 'admin@jobmesh.in' }, JWT_SECRET)}`;
-const SEEKER_COOKIE = `tj_token=${jwt.sign({ userId: 'seeker-1', email: 'nobody@x.com' }, JWT_SECRET)}`;
+// Admin auth is now MongoDB-backed (admin_users) + jm_admin_token (feat/admin-identity).
+// Each reset seeds an active admin and signs a token for it. A jm_admin_token whose
+// row is absent yields 403; a request with no admin cookie yields 401.
+let ADMIN_COOKIE;
+const NON_ADMIN_COOKIE = `jm_admin_token=${jwt.sign({ adminUserId: new ObjectId().toString() }, JWT_SECRET, { expiresIn: '8h' })}`;
 
 function buildApp() {
   const app = express();
@@ -27,27 +32,25 @@ function buildApp() {
 
 const asAdmin = (app, method, url) => request(app)[method](url).set('Cookie', ADMIN_COOKIE);
 
-before(async () => {
-  await dropCollections('employer_access');
+async function reset() {
+  await dropCollections('employer_access', 'admin_users');
   await ensureEmployerAccessIndexes();
-});
+  await ensureAdminUserIndexes();
+  const admin = await upsertAdminByEmail({ email: 'admin@jobmesh.in', role: 'super_admin' });
+  ADMIN_COOKIE = `jm_admin_token=${jwt.sign({ adminUserId: admin._id.toString() }, JWT_SECRET, { expiresIn: '8h' })}`;
+}
 
-beforeEach(async () => {
-  await dropCollections('employer_access');
-  await ensureEmployerAccessIndexes();
-});
-
-after(async () => {
-  await closeTestDb();
-});
+before(reset);
+beforeEach(reset);
+after(async () => { await closeTestDb(); });
 
 test('unauthenticated request → 401', async () => {
   const res = await request(buildApp()).get('/api/admin/employer-access');
   assert.equal(res.status, 401);
 });
 
-test('authenticated non-admin seeker → 403', async () => {
-  const res = await request(buildApp()).get('/api/admin/employer-access').set('Cookie', SEEKER_COOKIE);
+test('valid admin token but no admin_users row → 403', async () => {
+  const res = await request(buildApp()).get('/api/admin/employer-access').set('Cookie', NON_ADMIN_COOKIE);
   assert.equal(res.status, 403);
 });
 

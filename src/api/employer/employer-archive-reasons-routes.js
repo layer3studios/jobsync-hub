@@ -5,6 +5,7 @@
 
 import { Router } from 'express';
 import { asyncHandler } from '../../middleware/async-handler-middleware.js';
+import { requireInterviewerOrHigher } from '../../middleware/require-company-role-middleware.js';
 import { listArchiveReasonsForCompany } from '../../models/employer/archive-reason-model.js';
 
 const router = Router();
@@ -19,7 +20,7 @@ function toPublicArchiveReason(doc) {
 }
 
 // GET /api/employer/archive-reasons — the company's rejection/closure categories.
-router.get('/', asyncHandler(async (req, res) => {
+router.get('/', requireInterviewerOrHigher, asyncHandler(async (req, res) => {
   const reasons = await listArchiveReasonsForCompany(req.employerCompanyId);
   res.json({ reasons: reasons.map(toPublicArchiveReason) });
 }));

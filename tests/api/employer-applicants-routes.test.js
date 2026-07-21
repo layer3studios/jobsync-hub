@@ -21,6 +21,7 @@ import employerPostingsRouter from '../../src/api/employer/employer-postings-rou
 import {
   ensureCompanyIndexes, ensureEmployerUserIndexes, ensurePostingIndexes,
   findOrCreateEmployerGoogleUser, createCompany, linkCompanyToEmployerUser,
+  insertCompanyMember, ensureCompanyMemberIndexes,
   createPostingForCompany,
 } from '../../src/models/employer/index.js';
 import { ensureResumeScoreIndexes, upsertResumeScore } from '../../src/models/public/resume-score-model.js';
@@ -38,6 +39,7 @@ async function onboardedCookie(tag) {
   const user = await findOrCreateEmployerGoogleUser({ googleId: `g-${tag}`, email: `o${tag}@acme.com`, name: 'Owner', picture: null });
   const company = await createCompany({ name: `Acme ${tag}` }, user._id);
   await linkCompanyToEmployerUser(user._id, company._id);
+  await insertCompanyMember({ companyId: company._id, employerUserId: user._id, role: 'founder', isFounder: true });
   const token = jwt.sign({ employerUserId: user._id.toString(), email: user.email }, EMPLOYER_JWT_SECRET);
   return { cookie: `jm_employer_token=${token}`, company };
 }
@@ -55,8 +57,8 @@ before(async () => { await reset(); });
 beforeEach(async () => { await reset(); });
 after(async () => { await closeTestDb(); });
 async function reset() {
-  await dropCollections('jobs', 'companies', 'employer_users', 'applications', 'contacts', 'resume_scores');
-  await ensureCompanyIndexes(); await ensureEmployerUserIndexes(); await ensurePostingIndexes();
+  await dropCollections('jobs', 'companies', 'company_members', 'employer_users', 'applications', 'contacts', 'resume_scores');
+  await ensureCompanyIndexes(); await ensureEmployerUserIndexes(); await ensureCompanyMemberIndexes(); await ensurePostingIndexes();
   await ensureResumeScoreIndexes();
 }
 

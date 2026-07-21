@@ -38,8 +38,12 @@ export const PORT = parseInt(process.env.PORT, 10) || 3000;
 
 export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-// Comma-separated list of admin email addresses. Used by requireAdmin middleware.
-export const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
+// Admin identity is MongoDB-backed (admin_users collection) + jm_admin_token
+// cookie — no longer env-based. ADMIN_JWT_TTL_HOURS sets the admin session length
+// (short, mature-SaaS style; defaults 8h). INITIAL_ADMIN_EMAILS is bootstrap-only:
+// read once by src/scripts/seed-initial-admins.js, then deleted from prod .env.
+export const ADMIN_JWT_TTL_HOURS = Number(process.env.ADMIN_JWT_TTL_HOURS) || 8;
+export const INITIAL_ADMIN_EMAILS = (process.env.INITIAL_ADMIN_EMAILS || '')
   .split(',')
   .map(s => s.trim().toLowerCase())
   .filter(Boolean);

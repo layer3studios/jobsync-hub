@@ -17,6 +17,7 @@ import employerPostingsRouter from '../../src/api/employer/employer-postings-rou
 import {
   ensureCompanyIndexes, ensureEmployerUserIndexes, ensurePostingIndexes,
   findOrCreateEmployerGoogleUser, createCompany, linkCompanyToEmployerUser,
+  insertCompanyMember, ensureCompanyMemberIndexes,
 } from '../../src/models/employer/index.js';
 
 const VALID_BODY = {
@@ -41,6 +42,7 @@ async function onboardedCookie(tag) {
   const user = await findOrCreateEmployerGoogleUser({ googleId: `g-${tag}`, email: `o${tag}@acme.com`, name: 'Owner', picture: null });
   const company = await createCompany({ name: `Acme ${tag}` }, user._id);
   await linkCompanyToEmployerUser(user._id, company._id);
+  await insertCompanyMember({ companyId: company._id, employerUserId: user._id, role: 'founder', isFounder: true });
   return { cookie: tokenFor(user), company };
 }
 
@@ -53,8 +55,8 @@ before(async () => { await reset(); });
 beforeEach(async () => { await reset(); });
 after(async () => { await closeTestDb(); });
 async function reset() {
-  await dropCollections('jobs', 'companies', 'employer_users');
-  await ensureCompanyIndexes(); await ensureEmployerUserIndexes(); await ensurePostingIndexes();
+  await dropCollections('jobs', 'companies', 'company_members', 'employer_users');
+  await ensureCompanyIndexes(); await ensureEmployerUserIndexes(); await ensureCompanyMemberIndexes(); await ensurePostingIndexes();
 }
 
 test('POST without a cookie → 401', async () => {
