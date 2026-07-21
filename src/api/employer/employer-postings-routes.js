@@ -9,6 +9,9 @@ import { asyncHandler } from '../../middleware/async-handler-middleware.js';
 import { HttpError } from '../../middleware/error-handler-middleware.js';
 import { requireEmployerPosting } from '../../middleware/require-employer-posting-middleware.js';
 import {
+  requireInterviewerOrHigher, requireMemberOrHigher,
+} from '../../middleware/require-company-role-middleware.js';
+import {
   createPostingForCompany, listPostingsForCompany, updatePostingForCompany,
   closePostingForCompany, reopenPostingForCompany, toPublicPosting,
 } from '../../models/employer/posting-model.js';
@@ -82,7 +85,7 @@ function buildPatch(body, current) {
 }
 
 // POST /api/employer/jobs — create (default status 'active').
-router.post('/', asyncHandler(async (req, res) => {
+router.post('/', requireMemberOrHigher, asyncHandler(async (req, res) => {
   const input = buildCreateInput(req.body || {});
   const posting = await createPostingForCompany(
     req.employerCompanyId, input, req.employerUser.employerUserId,
@@ -92,7 +95,7 @@ router.post('/', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/employer/jobs — list, optional ?status= filter.
-router.get('/', asyncHandler(async (req, res) => {
+router.get('/', requireInterviewerOrHigher, asyncHandler(async (req, res) => {
   const filter = {};
   if (req.query.status !== undefined) filter.status = validatePostingStatus(req.query.status);
   const postings = await listPostingsForCompany(req.employerCompanyId, filter);
@@ -100,12 +103,12 @@ router.get('/', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/employer/jobs/:postingId — single posting.
-router.get('/:postingId', requireEmployerPosting, (req, res) => {
+router.get('/:postingId', requireInterviewerOrHigher, requireEmployerPosting, (req, res) => {
   res.json({ posting: toPublicPosting(req.posting) });
 });
 
 // PATCH /api/employer/jobs/:postingId — update mutable fields.
-router.patch('/:postingId', requireEmployerPosting, asyncHandler(async (req, res) => {
+router.patch('/:postingId', requireMemberOrHigher, requireEmployerPosting, asyncHandler(async (req, res) => {
   const patch = buildPatch(req.body || {}, req.posting);
   const posting = await updatePostingForCompany(req.employerCompanyId, req.posting._id, patch);
   // Re-extract only when the description actually changed — not on status-only edits.
@@ -114,16 +117,16 @@ router.patch('/:postingId', requireEmployerPosting, asyncHandler(async (req, res
 }));
 
 // GET /api/employer/jobs/:postingId/applicants — applications + contact + score.
-router.get('/:postingId/applicants', requireEmployerPosting, asyncHandler(listApplicantsForPosting));
+router.get('/:postingId/applicants', requireInterviewerOrHigher, requireEmployerPosting, asyncHandler(listApplicantsForPosting));
 
 // POST /api/employer/jobs/:postingId/close — status → 'closed'.
-router.post('/:postingId/close', requireEmployerPosting, asyncHandler(async (req, res) => {
+router.post('/:postingId/close', requireMemberOrHigher, requireEmployerPosting, asyncHandler(async (req, res) => {
   const posting = await closePostingForCompany(req.employerCompanyId, req.posting._id);
   res.json({ posting: toPublicPosting(posting) });
 }));
 
 // POST /api/employer/jobs/:postingId/reopen — status → 'active'.
-router.post('/:postingId/reopen', requireEmployerPosting, asyncHandler(async (req, res) => {
+router.post('/:postingId/reopen', requireMemberOrHigher, requireEmployerPosting, asyncHandler(async (req, res) => {
   const posting = await reopenPostingForCompany(req.employerCompanyId, req.posting._id);
   res.json({ posting: toPublicPosting(posting) });
 }));

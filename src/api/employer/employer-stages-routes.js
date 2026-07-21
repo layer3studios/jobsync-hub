@@ -5,6 +5,7 @@
 
 import { Router } from 'express';
 import { asyncHandler } from '../../middleware/async-handler-middleware.js';
+import { requireInterviewerOrHigher } from '../../middleware/require-company-role-middleware.js';
 import { listStagesForCompany } from '../../models/employer/stage-model.js';
 
 const router = Router();
@@ -21,7 +22,7 @@ function toPublicStage(doc) {
 }
 
 // GET /api/employer/stages — the company's pipeline columns, in order.
-router.get('/', asyncHandler(async (req, res) => {
+router.get('/', requireInterviewerOrHigher, asyncHandler(async (req, res) => {
   const stages = await listStagesForCompany(req.employerCompanyId);
   res.json({ stages: stages.map(toPublicStage) });
 }));
