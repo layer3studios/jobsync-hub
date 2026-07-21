@@ -1,5 +1,6 @@
 // FILE: src/api/seeker/seeker-me-routes.js
 // All routes here assume req.user.userId is set by the requireSeeker middleware.
+// Admin identity is served by /api/admin/auth/me. This endpoint never returns isAdmin.
 
 import { Router } from 'express';
 import {
