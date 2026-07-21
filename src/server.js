@@ -34,6 +34,7 @@ import meRouter from './api/seeker/seeker-me-routes.js';
 import { jobsApiRouter } from './api/seeker/seeker-jobs-routes.js';
 import usersRouter from './api/seeker/seeker-users-routes.js';
 import adminRouter from './api/admin/admin-routes.js';
+import { createAdminAnalyticsRouter } from './api/admin/admin-analytics-routes.js';
 import newsRouter from './api/seeker/news-routes.js';
 import { createEmployerAuthRouter } from './api/employer/employer-auth-routes.js';
 import employerCompanyRouter from './api/employer/employer-company-routes.js';
@@ -59,7 +60,7 @@ import { startResumeParseWorker } from './services/seeker/resume-parse-worker.js
 import { ensureResumeScoreJobIndexes } from './models/public/resume-score-job-model.js';
 import { startScoreWorker } from './services/public/resume-score-worker.js';
 
-import { requireSeeker } from './middleware/require-seeker-middleware.js';
+import { requireSeeker, requireAdmin } from './middleware/require-seeker-middleware.js';
 import { requireConsentForPurpose } from './middleware/require-consent-middleware.js';
 import { requireEmployer } from './middleware/require-employer-middleware.js';
 import { requireEmployerCompany } from './middleware/require-employer-company-middleware.js';
@@ -81,6 +82,7 @@ app.use('/api/seeker/me', requireSeeker, meRouter);
 app.use('/api/seeker/jobs', jobsApiRouter);
 app.use('/api/seeker/users', usersRouter); // legacy 410 wildcard
 app.use('/api/admin', adminRouter);
+app.use('/api/admin/analytics', requireSeeker, requireAdmin, createAdminAnalyticsRouter());
 app.use('/api/seeker/news', newsRouter);
 app.use('/api/seeker/resume', requireSeeker, requireConsentForPurpose('resume_parsing'), seekerResumeRouter);
 app.use('/api/seeker/profile', requireSeeker, seekerProfileRouter);
