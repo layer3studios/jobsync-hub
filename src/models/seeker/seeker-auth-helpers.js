@@ -2,6 +2,7 @@
 // Identity / lookups. Index setup lives here too.
 
 import { usersCol, toOid, normaliseApplied } from './seeker-user-shared-helpers.js';
+import { insertUserWithSlugRetry } from './slug-collision-retry.js';
 
 function slugify(str) {
   return String(str || '')
@@ -58,9 +59,13 @@ export async function findOrCreateGoogleUser({ googleId, email, name, picture })
   }
 
   const now = new Date();
-  const doc = {
+  const baseSlug = slugify(name || email);
+  // slug is uniquely indexed and derived from a (non-unique) display name, so the
+  // insert must retry with a numeric suffix on a slug collision (E11000). Every other
+  // field is identical across attempts; only the slug changes.
+  const buildDoc = (slug) => ({
     googleId, email, name, picture,
-    slug: slugify(name || email),
+    slug,
     createdAt: now,
     lastVisitAt: now,
     appliedJobs: [],
@@ -69,7 +74,6 @@ export async function findOrCreateGoogleUser({ googleId, email, name, picture })
     comeBackTo: [],
     dismissedJobs: [],
     dailyGoal: 5,
-  };
-  const result = await col.insertOne(doc);
-  return { ...doc, _id: result.insertedId };
+  });
+  return insertUserWithSlugRetry(col, buildDoc, baseSlug);
 }
