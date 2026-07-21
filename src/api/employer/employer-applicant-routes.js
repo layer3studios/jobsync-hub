@@ -7,6 +7,10 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../middleware/async-handler-middleware.js';
 import { requireEmployerApplicant } from '../../middleware/require-employer-applicant-middleware.js';
+import {
+  requireInterviewerOrHigher, requireMemberOrHigher,
+  requireCanMoveApplicants, requireCanArchiveApplicants,
+} from '../../middleware/require-company-role-middleware.js';
 import { getApplicantDetailForCompany } from '../../services/employer/applicant-detail-service.js';
 import { moveApplicantToStage } from '../../services/employer/applicant-move-service.js';
 import { archiveApplicant, unarchiveApplicant, bulkArchiveApplicants } from '../../services/employer/applicant-archive-service.js';
@@ -22,7 +26,7 @@ const router = Router();
 // MUST precede the /:applicationId routes: Express matches in declaration order, so a
 // static path after a parameterized one would be captured as an applicationId (R2).
 // No requireEmployerApplicant — the service does its own per-item ownership check.
-router.post('/bulk/archive', asyncHandler(async (req, res) => {
+router.post('/bulk/archive', requireCanArchiveApplicants, asyncHandler(async (req, res) => {
   const { applicationIds, reasonId, note } = req.body || {};
   const result = await bulkArchiveApplicants(
     req.employerCompanyId, { applicationIds, reasonId, note }, req.employerUser.employerUserId,
@@ -31,13 +35,13 @@ router.post('/bulk/archive', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/employer/applicants/:applicationId — full detail (D2).
-router.get('/:applicationId', requireEmployerApplicant, asyncHandler(async (req, res) => {
+router.get('/:applicationId', requireInterviewerOrHigher, requireEmployerApplicant, asyncHandler(async (req, res) => {
   const applicant = await getApplicantDetailForCompany(req.employerCompanyId, req.application._id);
   res.json({ applicant });
 }));
 
 // POST /api/employer/applicants/:applicationId/move — { stageId, note? }.
-router.post('/:applicationId/move', requireEmployerApplicant, asyncHandler(async (req, res) => {
+router.post('/:applicationId/move', requireCanMoveApplicants, requireEmployerApplicant, asyncHandler(async (req, res) => {
   const { stageId, note } = req.body || {};
   const result = await moveApplicantToStage(
     req.employerCompanyId, req.application._id, { stageId, note }, req.employerUser.employerUserId,
@@ -46,7 +50,7 @@ router.post('/:applicationId/move', requireEmployerApplicant, asyncHandler(async
 }));
 
 // POST /api/employer/applicants/:applicationId/archive — { reasonId, note? }.
-router.post('/:applicationId/archive', requireEmployerApplicant, asyncHandler(async (req, res) => {
+router.post('/:applicationId/archive', requireCanArchiveApplicants, requireEmployerApplicant, asyncHandler(async (req, res) => {
   const { reasonId, note } = req.body || {};
   const result = await archiveApplicant(
     req.employerCompanyId, req.application._id, { reasonId, note }, req.employerUser.employerUserId,
@@ -55,7 +59,7 @@ router.post('/:applicationId/archive', requireEmployerApplicant, asyncHandler(as
 }));
 
 // POST /api/employer/applicants/:applicationId/unarchive.
-router.post('/:applicationId/unarchive', requireEmployerApplicant, asyncHandler(async (req, res) => {
+router.post('/:applicationId/unarchive', requireCanArchiveApplicants, requireEmployerApplicant, asyncHandler(async (req, res) => {
   const result = await unarchiveApplicant(
     req.employerCompanyId, req.application._id, req.employerUser.employerUserId,
   );
@@ -64,13 +68,13 @@ router.post('/:applicationId/unarchive', requireEmployerApplicant, asyncHandler(
 
 // POST /api/employer/applicants/:applicationId/rescore — requeue AI scoring.
 // 202 when a job was reset or inserted; 200 when one was already in flight (C9/C10).
-router.post('/:applicationId/rescore', requireEmployerApplicant, asyncHandler(async (req, res) => {
+router.post('/:applicationId/rescore', requireMemberOrHigher, requireEmployerApplicant, asyncHandler(async (req, res) => {
   const result = await rescoreApplicantForCompany(req.employerCompanyId, req.application._id);
   res.status(result.rescored ? 202 : 200).json(result);
 }));
 
 // GET /api/employer/applicants/:applicationId/resume-url — signed 15-min URL.
-router.get('/:applicationId/resume-url', requireEmployerApplicant, asyncHandler(async (req, res) => {
+router.get('/:applicationId/resume-url', requireInterviewerOrHigher, requireEmployerApplicant, asyncHandler(async (req, res) => {
   const token = signResumeToken(req.application._id, RESUME_URL_TTL_MS);
   res.json({
     url: `/api/public/resume-download?token=${token}`,
@@ -79,13 +83,13 @@ router.get('/:applicationId/resume-url', requireEmployerApplicant, asyncHandler(
 }));
 
 // GET /api/employer/applicants/:applicationId/notes — newest first (C3/D5).
-router.get('/:applicationId/notes', requireEmployerApplicant, asyncHandler(async (req, res) => {
+router.get('/:applicationId/notes', requireInterviewerOrHigher, requireEmployerApplicant, asyncHandler(async (req, res) => {
   const notes = await listApplicantNotesForApplicant(req.employerCompanyId, req.application._id);
   res.json({ notes });
 }));
 
 // POST /api/employer/applicants/:applicationId/notes — { body }. 201 with the new note.
-router.post('/:applicationId/notes', requireEmployerApplicant, asyncHandler(async (req, res) => {
+router.post('/:applicationId/notes', requireInterviewerOrHigher, requireEmployerApplicant, asyncHandler(async (req, res) => {
   const note = await createApplicantNoteForApplicant(
     req.employerCompanyId, req.application._id, req.employerUser.employerUserId, req.body?.body,
   );

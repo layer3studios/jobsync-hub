@@ -21,6 +21,7 @@ import employerApplicantRouter from '../../src/api/employer/employer-applicant-r
 import {
   ensureCompanyIndexes, ensureEmployerUserIndexes,
   findOrCreateEmployerGoogleUser, createCompany, linkCompanyToEmployerUser,
+  insertCompanyMember, ensureCompanyMemberIndexes,
 } from '../../src/models/employer/index.js';
 import {
   ensureResumeScoreJobIndexes, insertScoreJob, claimNextScoreJob, markScoreJobDone,
@@ -39,6 +40,7 @@ async function onboardedCookie(tag) {
   const user = await findOrCreateEmployerGoogleUser({ googleId: `g-${tag}`, email: `o${tag}@acme.com`, name: 'Owner', picture: null });
   const company = await createCompany({ name: `Acme ${tag}` }, user._id);
   await linkCompanyToEmployerUser(user._id, company._id);
+  await insertCompanyMember({ companyId: company._id, employerUserId: user._id, role: 'founder', isFounder: true });
   const token = jwt.sign({ employerUserId: user._id.toString(), email: user.email }, EMPLOYER_JWT_SECRET);
   return { cookie: `jm_employer_token=${token}`, company };
 }
@@ -72,8 +74,8 @@ before(async () => { await reset(); });
 beforeEach(async () => { await reset(); });
 after(async () => { await closeTestDb(); });
 async function reset() {
-  await dropCollections('companies', 'employer_users', 'applications', 'contacts', 'stages', 'archive_reasons', 'stage_changes', 'resume_scores', 'resume_files', 'resume_score_jobs');
-  await ensureCompanyIndexes(); await ensureEmployerUserIndexes();
+  await dropCollections('companies', 'company_members', 'employer_users', 'applications', 'contacts', 'stages', 'archive_reasons', 'stage_changes', 'resume_scores', 'resume_files', 'resume_score_jobs');
+  await ensureCompanyIndexes(); await ensureEmployerUserIndexes(); await ensureCompanyMemberIndexes();
   await ensureResumeScoreJobIndexes();
 }
 
@@ -275,4 +277,79 @@ test('POST rescore with a malformed applicationId → 400', async () => {
   const { cookie } = await onboardedCookie('rs7');
   const res = await request(buildApp()).post(rescorePath('not-an-oid')).set('Cookie', cookie);
   assert.equal(res.status, 400);
+});
+
+// ── Chunk 3: role enforcement gating ─────────────────────────────────────────
+let roleSeq = 0;
+async function addRoleCookie(companyId, role, extra = {}) {
+  roleSeq += 1;
+  const user = await findOrCreateEmployerGoogleUser({ googleId: `gr-${role}-${roleSeq}`, email: `r${role}${roleSeq}@acme.com`, name: role, picture: null });
+  await linkCompanyToEmployerUser(user._id, companyId);
+  await insertCompanyMember({ companyId, employerUserId: user._id, role, isFounder: false, ...extra });
+  return `jm_employer_token=${jwt.sign({ employerUserId: user._id.toString(), email: user.email }, EMPLOYER_JWT_SECRET)}`;
+}
+
+test('gating — move: 403 Interviewer without canMoveApplicants', async () => {
+  const { company } = await onboardedCookie('gm1');
+  const cookie = await addRoleCookie(company._id, 'interviewer');
+  const appId = await seedApplicant(company._id, { stageId: new ObjectId() });
+  const res = await request(buildApp()).post(`/api/employer/applicants/${appId}/move`).set('Cookie', cookie).send({ stageId: new ObjectId().toString() });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'INSUFFICIENT_INTERVIEWER_PERMS');
+});
+
+test('gating — move: 200 Interviewer with canMoveApplicants=true', async () => {
+  const { company } = await onboardedCookie('gm2');
+  const cookie = await addRoleCookie(company._id, 'interviewer', { canMoveApplicants: true });
+  const toStage = (await (await col('stages')).insertOne({ companyId: company._id, text: 'Shortlisted', order: 2 })).insertedId;
+  const appId = await seedApplicant(company._id, { stageId: new ObjectId() });
+  const res = await request(buildApp()).post(`/api/employer/applicants/${appId}/move`).set('Cookie', cookie).send({ stageId: toStage.toString() });
+  assert.equal(res.status, 200);
+});
+
+test('gating — archive: 403 Interviewer without canArchiveApplicants', async () => {
+  const { company } = await onboardedCookie('ga1');
+  const cookie = await addRoleCookie(company._id, 'interviewer');
+  const appId = await seedApplicant(company._id, { stageId: new ObjectId() });
+  const res = await request(buildApp()).post(`/api/employer/applicants/${appId}/archive`).set('Cookie', cookie).send({ reasonId: new ObjectId().toString() });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'INSUFFICIENT_INTERVIEWER_PERMS');
+});
+
+test('gating — archive: 200 Interviewer with canArchiveApplicants=true', async () => {
+  const { company } = await onboardedCookie('ga2');
+  const cookie = await addRoleCookie(company._id, 'interviewer', { canArchiveApplicants: true });
+  const reasonId = await insertReason(company._id);
+  const appId = await seedApplicant(company._id, { stageId: new ObjectId() });
+  const res = await request(buildApp()).post(`/api/employer/applicants/${appId}/archive`).set('Cookie', cookie).send({ reasonId: reasonId.toString() });
+  assert.equal(res.status, 200);
+});
+
+test('gating — bulk/archive: 403 Interviewer without canArchiveApplicants', async () => {
+  const { company } = await onboardedCookie('gb1');
+  const cookie = await addRoleCookie(company._id, 'interviewer');
+  const appId = await seedApplicant(company._id, { stageId: new ObjectId() });
+  const res = await request(buildApp()).post('/api/employer/applicants/bulk/archive').set('Cookie', cookie).send({ applicationIds: [appId.toString()], reasonId: new ObjectId().toString() });
+  assert.equal(res.status, 403);
+});
+
+test('gating — rescore: 403 Interviewer, 202 Member', async () => {
+  const { company } = await onboardedCookie('gr1');
+  const appId = await seedApplicant(company._id, { stageId: new ObjectId() });
+  const interviewer = await addRoleCookie(company._id, 'interviewer', { canMoveApplicants: true, canArchiveApplicants: true });
+  const denied = await request(buildApp()).post(`/api/employer/applicants/${appId}/rescore`).set('Cookie', interviewer).send();
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.code, 'INSUFFICIENT_ROLE');
+  const member = await addRoleCookie(company._id, 'member');
+  const ok = await request(buildApp()).post(`/api/employer/applicants/${appId}/rescore`).set('Cookie', member).send();
+  assert.equal(ok.status, 202);
+});
+
+test('gating — notes: GET+POST 200 for Interviewer (all roles may read/add notes)', async () => {
+  const { company } = await onboardedCookie('gn1');
+  const cookie = await addRoleCookie(company._id, 'interviewer');
+  const appId = await seedApplicant(company._id, { stageId: new ObjectId() });
+  assert.equal((await request(buildApp()).get(`/api/employer/applicants/${appId}/notes`).set('Cookie', cookie)).status, 200);
+  const posted = await request(buildApp()).post(`/api/employer/applicants/${appId}/notes`).set('Cookie', cookie).send({ body: 'Solid candidate' });
+  assert.equal(posted.status, 201);
 });

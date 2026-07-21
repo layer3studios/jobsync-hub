@@ -1,8 +1,10 @@
 // FILE: src/middleware/require-seeker-middleware.js
-// Verifies the auth cookie and attaches req.user. requireAdmin uses ADMIN_EMAILS.
+// Verifies the seeker auth cookie (tj_token) and attaches req.user. Admin identity
+// is a separate audience now — see require-admin-middleware.js (jm_admin_token).
+// This file no longer knows anything about admins.
 
 import jwt from 'jsonwebtoken';
-import { JWT_SECRET, ADMIN_EMAILS } from '../env.js';
+import { JWT_SECRET } from '../env.js';
 import { HttpError } from './error-handler-middleware.js';
 
 export function requireSeeker(req, _res, next) {
@@ -16,15 +18,6 @@ export function requireSeeker(req, _res, next) {
   } catch {
     next(new HttpError(401, 'Unauthorized'));
   }
-}
-
-// Real admin check — only emails in ADMIN_EMAILS pass.
-export function requireAdmin(req, _res, next) {
-  const email = req.user?.email?.toLowerCase();
-  if (!email || !ADMIN_EMAILS.includes(email)) {
-    return next(new HttpError(403, 'Forbidden'));
-  }
-  next();
 }
 
 // Optional auth: attaches req.user if a valid cookie is present, never rejects.
