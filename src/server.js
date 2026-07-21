@@ -17,6 +17,8 @@ import {
   ensureStageIndexes,
   ensureArchiveReasonIndexes,
   ensurePostingIndexes,
+  ensureCompanyMemberIndexes,
+  ensureCompanyInviteIndexes,
 } from './models/employer/index.js';
 
 import {
@@ -24,6 +26,8 @@ import {
   ensureAuditLogIndexes,
   ensureRightsRequestIndexes,
 } from './models/dpdp/index.js';
+
+import { ensureAdminUserIndexes } from './models/admin/index.js';
 
 import { initGemma } from './gemma/index.js';
 
@@ -34,6 +38,7 @@ import meRouter from './api/seeker/seeker-me-routes.js';
 import { jobsApiRouter } from './api/seeker/seeker-jobs-routes.js';
 import usersRouter from './api/seeker/seeker-users-routes.js';
 import adminRouter from './api/admin/admin-routes.js';
+import { createAdminAuthRouter } from './api/admin/admin-auth-routes.js';
 import { createAdminAnalyticsRouter } from './api/admin/admin-analytics-routes.js';
 import newsRouter from './api/seeker/news-routes.js';
 import { createEmployerAuthRouter } from './api/employer/employer-auth-routes.js';
@@ -42,6 +47,8 @@ import employerPostingsRouter from './api/employer/employer-postings-routes.js';
 import employerApplicantRouter from './api/employer/employer-applicant-routes.js';
 import employerStagesRouter from './api/employer/employer-stages-routes.js';
 import employerArchiveReasonsRouter from './api/employer/employer-archive-reasons-routes.js';
+import employerTeamRouter, { acceptRouter as employerInviteAcceptRouter } from './api/employer/employer-team-routes.js';
+import publicInviteRouter from './api/public/public-invite-routes.js';
 import resumeDownloadRouter from './api/public/resume-download-route.js';
 import dpdpRouter from './api/dpdp/dpdp-routes.js';
 import seekerResumeRouter from './api/seeker/seeker-resume-routes.js';
@@ -60,7 +67,8 @@ import { startResumeParseWorker } from './services/seeker/resume-parse-worker.js
 import { ensureResumeScoreJobIndexes } from './models/public/resume-score-job-model.js';
 import { startScoreWorker } from './services/public/resume-score-worker.js';
 
-import { requireSeeker, requireAdmin } from './middleware/require-seeker-middleware.js';
+import { requireSeeker } from './middleware/require-seeker-middleware.js';
+import { requireAdmin } from './middleware/require-admin-middleware.js';
 import { requireConsentForPurpose } from './middleware/require-consent-middleware.js';
 import { requireEmployer } from './middleware/require-employer-middleware.js';
 import { requireEmployerCompany } from './middleware/require-employer-company-middleware.js';
@@ -81,8 +89,14 @@ app.use('/api/seeker/auth', authRouter);
 app.use('/api/seeker/me', requireSeeker, meRouter);
 app.use('/api/seeker/jobs', jobsApiRouter);
 app.use('/api/seeker/users', usersRouter); // legacy 410 wildcard
+// Admin auth (jm_admin_token). MUST mount before /api/admin so /api/admin/auth/*
+// is not gated by requireAdmin (a user with no admin session must be able to log in).
+app.use('/api/admin/auth', createAdminAuthRouter());
 app.use('/api/admin', adminRouter);
-app.use('/api/admin/analytics', requireSeeker, requireAdmin, createAdminAnalyticsRouter());
+// Admin analytics: jm_admin_token via new require-admin-middleware (D5 — standalone,
+// no seeker chain). Kept mounted separately (not under adminRouter) to preserve
+// master's route file boundary.
+app.use('/api/admin/analytics', requireAdmin, createAdminAnalyticsRouter());
 app.use('/api/seeker/news', newsRouter);
 app.use('/api/seeker/resume', requireSeeker, requireConsentForPurpose('resume_parsing'), seekerResumeRouter);
 app.use('/api/seeker/profile', requireSeeker, seekerProfileRouter);
@@ -93,8 +107,13 @@ app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerP
 app.use('/api/employer/applicants', requireEmployer, requireEmployerCompany, employerApplicantRouter);
 app.use('/api/employer/stages', requireEmployer, requireEmployerCompany, employerStagesRouter);
 app.use('/api/employer/archive-reasons', requireEmployer, requireEmployerCompany, employerArchiveReasonsRouter);
+// Accept mounts BEFORE the company-scoped team router: the invitee may have no
+// company yet, so it uses requireEmployer only — NOT requireEmployerCompany (D2/R6).
+app.use('/api/employer/team/invites/accept', requireEmployer, employerInviteAcceptRouter);
+app.use('/api/employer/team', requireEmployer, requireEmployerCompany, employerTeamRouter);
 app.use('/api/dpdp', dpdpRouter); // per-route guards (D9) — /notice-version is public
 app.use('/api/public/resume-download', resumeDownloadRouter); // signed-token PDF stream (before the apply catch-all)
+app.use('/api/public/invites', publicInviteRouter); // unauthenticated invite preview (before the apply catch-all)
 app.use('/api/public', publicApplyRouter); // unauthenticated candidate apply pages
 
 // ─── 404 + central error handler (must be last) ───────────────────
@@ -108,11 +127,14 @@ const server = app.listen(PORT, async () => {
     await ensureUserIndexes();
     await ensureJobIndexes();
     await ensureEmployerUserIndexes();
+    await ensureAdminUserIndexes();
     await ensureEmployerAccessIndexes();
     await ensureCompanyIndexes();
     await ensureStageIndexes();
     await ensureArchiveReasonIndexes();
     await ensurePostingIndexes();
+    await ensureCompanyMemberIndexes();
+    await ensureCompanyInviteIndexes();
     await ensureConsentIndexes();
     await ensureAuditLogIndexes();
     await ensureRightsRequestIndexes();

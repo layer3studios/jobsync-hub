@@ -12,9 +12,26 @@ import { onboardEmployerCompany } from '../../services/employer/onboarding-servi
 import {
   validateName, validateOptionalUrl, validateRetentionDays, validateDpoEmail,
 } from '../../services/employer/company-validators.js';
+import {
+  requireInterviewerOrHigher, requireOwnerOrHigher,
+} from '../../middleware/require-company-role-middleware.js';
 
 const router = Router();
 const PATCHABLE_FIELDS = ['name', 'website', 'retentionDays', 'privacyPolicyUrl', 'dpoEmail'];
+
+// This router mounts on requireEmployer only (POST onboarding must work before a
+// company exists), so the role middleware — which needs req.employerCompanyId — gets
+// it here. Preserves the existing 404 NO_COMPANY for a caller who hasn't onboarded.
+async function attachCompanyForRole(req, _res, next) {
+  try {
+    const user = await getEmployerUserById(req.employerUser.employerUserId);
+    if (!user?.companyId) return next(new HttpError(404, 'No company', 'NO_COMPANY'));
+    req.employerCompanyId = user.companyId;
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
 
 /** Validate a PATCH body: reject unknown keys, normalize each supplied field. */
 function buildCompanyPatch(body) {
@@ -47,7 +64,7 @@ router.post('/', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/employer/company — the caller's company (404 NO_COMPANY when absent).
-router.get('/', asyncHandler(async (req, res) => {
+router.get('/', attachCompanyForRole, requireInterviewerOrHigher, asyncHandler(async (req, res) => {
   const user = await getEmployerUserById(req.employerUser.employerUserId);
   if (!user?.companyId) throw new HttpError(404, 'No company', 'NO_COMPANY');
   const company = await getCompanyById(user.companyId);
@@ -55,8 +72,8 @@ router.get('/', asyncHandler(async (req, res) => {
   res.json({ company: toPublicCompany(company) });
 }));
 
-// PATCH /api/employer/company — update the caller's own company only.
-router.patch('/', asyncHandler(async (req, res) => {
+// PATCH /api/employer/company — update the caller's own company only. Owner+.
+router.patch('/', attachCompanyForRole, requireOwnerOrHigher, asyncHandler(async (req, res) => {
   const user = await getEmployerUserById(req.employerUser.employerUserId);
   if (!user?.companyId) throw new HttpError(404, 'No company', 'NO_COMPANY');
   const patch = buildCompanyPatch(req.body || {});

@@ -8,6 +8,7 @@ import {
   ensureCompanyIndexes, ensureEmployerUserIndexes,
   findOrCreateEmployerGoogleUser, getEmployerUserById,
   listStagesForCompany, listArchiveReasonsForCompany,
+  ensureCompanyMemberIndexes, findFounderForCompany,
 } from '../../src/models/employer/index.js';
 import { onboardEmployerCompany } from '../../src/services/employer/onboarding-service.js';
 
@@ -20,12 +21,12 @@ async function freshUser() {
 }
 
 before(async () => {
-  await dropCollections('companies', 'stages', 'archive_reasons', 'employer_users');
-  await ensureCompanyIndexes(); await ensureEmployerUserIndexes();
+  await dropCollections('companies', 'stages', 'archive_reasons', 'employer_users', 'company_members');
+  await ensureCompanyIndexes(); await ensureEmployerUserIndexes(); await ensureCompanyMemberIndexes();
 });
 beforeEach(async () => {
-  await dropCollections('companies', 'stages', 'archive_reasons', 'employer_users');
-  await ensureCompanyIndexes(); await ensureEmployerUserIndexes();
+  await dropCollections('companies', 'stages', 'archive_reasons', 'employer_users', 'company_members');
+  await ensureCompanyIndexes(); await ensureEmployerUserIndexes(); await ensureCompanyMemberIndexes();
 });
 after(async () => { await closeTestDb(); });
 
@@ -72,4 +73,46 @@ test('a failure after the company insert cleans up and leaves the user un-onboar
   assert.equal(await (await col('archive_reasons')).countDocuments({}), 0);
   const reloaded = await getEmployerUserById(user._id.toString());
   assert.equal(reloaded.companyId, null);
+});
+
+// ── Chunk 3.5: onboarding creates the Founder membership ─────────────────────
+
+test('onboarding creates a Founder membership with the expected shape', async () => {
+  const user = await freshUser();
+  const { company } = await onboardEmployerCompany({ employerUserId: user._id.toString(), name: 'Founders Inc' });
+  const founder = await findFounderForCompany(company.id);
+  assert.ok(founder, 'a Founder membership row exists');
+  assert.equal(founder.employerUserId.toString(), user._id.toString());
+  assert.equal(founder.role, 'founder');
+  assert.equal(founder.isFounder, true);
+  assert.equal(founder.canMoveApplicants, true);
+  assert.equal(founder.canArchiveApplicants, true);
+  assert.equal(founder.invitedByEmployerUserId, null);
+  assert.ok(founder.joinedAt instanceof Date);
+  assert.equal(await (await col('company_members')).countDocuments({}), 1);
+});
+
+test('membership insert failure rolls back the company (compensating write)', async () => {
+  const user = await freshUser();
+  const throwingInsertMember = () => { throw new Error('member insert boom'); };
+  await assert.rejects(
+    () => onboardEmployerCompany({ employerUserId: user._id.toString(), name: 'Acme' }, { insertMember: throwingInsertMember }),
+    (err) => err.message === 'member insert boom',
+  );
+  assert.equal(await (await col('companies')).countDocuments({}), 0, 'company rolled back');
+  assert.equal(await (await col('company_members')).countDocuments({}), 0, 'no orphan membership');
+  assert.equal((await getEmployerUserById(user._id.toString())).companyId, null);
+});
+
+test('double failure (member insert + rollback both fail) rethrows the ORIGINAL error', async () => {
+  const user = await freshUser();
+  const throwingInsertMember = () => { throw new Error('member insert boom'); };
+  const throwingCleanup = () => { throw new Error('cleanup boom'); };
+  await assert.rejects(
+    () => onboardEmployerCompany(
+      { employerUserId: user._id.toString(), name: 'Acme' },
+      { insertMember: throwingInsertMember, cleanup: throwingCleanup },
+    ),
+    (err) => err.message === 'member insert boom', // the real reason, not the cleanup error (D2)
+  );
 });
