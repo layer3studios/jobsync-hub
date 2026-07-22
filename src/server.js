@@ -39,6 +39,7 @@ import { jobsApiRouter } from './api/seeker/seeker-jobs-routes.js';
 import usersRouter from './api/seeker/seeker-users-routes.js';
 import adminRouter from './api/admin/admin-routes.js';
 import { createAdminAuthRouter } from './api/admin/admin-auth-routes.js';
+import { createAdminAnalyticsRouter } from './api/admin/admin-analytics-routes.js';
 import newsRouter from './api/seeker/news-routes.js';
 import { createEmployerAuthRouter } from './api/employer/employer-auth-routes.js';
 import employerCompanyRouter from './api/employer/employer-company-routes.js';
@@ -67,6 +68,7 @@ import { ensureResumeScoreJobIndexes } from './models/public/resume-score-job-mo
 import { startScoreWorker } from './services/public/resume-score-worker.js';
 
 import { requireSeeker } from './middleware/require-seeker-middleware.js';
+import { requireAdmin } from './middleware/require-admin-middleware.js';
 import { requireConsentForPurpose } from './middleware/require-consent-middleware.js';
 import { requireEmployer } from './middleware/require-employer-middleware.js';
 import { requireEmployerCompany } from './middleware/require-employer-company-middleware.js';
@@ -91,6 +93,10 @@ app.use('/api/seeker/users', usersRouter); // legacy 410 wildcard
 // is not gated by requireAdmin (a user with no admin session must be able to log in).
 app.use('/api/admin/auth', createAdminAuthRouter());
 app.use('/api/admin', adminRouter);
+// Admin analytics: jm_admin_token via new require-admin-middleware (D5 — standalone,
+// no seeker chain). Kept mounted separately (not under adminRouter) to preserve
+// master's route file boundary.
+app.use('/api/admin/analytics', requireAdmin, createAdminAnalyticsRouter());
 app.use('/api/seeker/news', newsRouter);
 app.use('/api/seeker/resume', requireSeeker, requireConsentForPurpose('resume_parsing'), seekerResumeRouter);
 app.use('/api/seeker/profile', requireSeeker, seekerProfileRouter);

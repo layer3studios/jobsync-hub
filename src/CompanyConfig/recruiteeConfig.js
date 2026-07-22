@@ -38,14 +38,9 @@ const companySlugs = [
     // ── Discovered via ATS scan (Mar 2026) ──
     'ampere',
     'ramco',
-    'talentica',
-    'kpit',
-    'publicissapient',
-    'flipkart',
-    'lenskart',
-    'blinkit',
-    'angelone',
-    'caratlane'
+    // Verify each — Recruitee slug quality varies wildly
+'penta',
+'kontist',
 ];
 
 const indianCities = [
