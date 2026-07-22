@@ -16,56 +16,28 @@ export const greenhouseConfig = {
         'twitch',
         
         // ✅ ADDITIONAL WORKING TOKENS (tech companies with India jobs)
-        'deliveryhero',
-        'getaround',
         'wolt',
-        'personio',
         'contentful',
         'celonis',
-        'adjust',
-        'signavio',
-        'sennder',
         'n26',
-        'gorillas',
-        'flink',
-        'trade-republic',
-        'taxfix',
         'raisin',
-        'heyjobs',
-        'omio',
-        'scalablecapital',
         'eyeo',
-        'jimdo',
         
         // ✅ More tech companies (may or may not have India jobs)
-        'shopify',          // Try alternative
         'datadog',
-        'notion',           // Try alternative  
-        'miro',
-        'zapier',
         'asana',
         'dropbox',
-        'docusign',
-        'confluent',
         'databricks',
-        'snowflake',
-        'hashicorp',
         'cloudflare',
         'mongodb',
         'elastic',
         'okta',
-        'zendesk',
         'hubspot',
         'intercom',
-        'segment',
         'amplitude',
         'mixpanel',
         'launchdarkly',
         'pagerduty',
-        'sumo-logic',
-        'new-relic',
-        'splunk',
-        'dynatrace',
 
         // ── Discovered via API scan ──
         'zscaler',
@@ -105,6 +77,46 @@ export const greenhouseConfig = {
         // ── Discovered via ATS scan (Mar 2026) ──
         'tcs',
         'slice',
+        // ── High-confidence: Indian unicorns/soonicorns ──
+'digit',
+
+// ── High-confidence: Global tech with India engineering ──
+'databricks',
+'circleci',
+'buildkite',
+'launchdarkly',
+'fivetran',
+'dremio',
+'clickhouse',
+'planetscale',
+'netlify',
+'nubank',
+'brex',
+'mercury',
+'chime',
+'affirm',
+'discord',
+'roblox',
+'coinbase', // in case not tried
+'gemini',
+'okx',
+'bybit',
+'bitgo',
+'fireblocks',
+'consensys',
+'zscaler', // already there, dedupe on your end
+'commvault', // dupe check
+'rubrik', // dupe
+'druva', // dupe
+'mongodb', // dupe
+'nubank',
+
+// ── High-confidence: US SaaS with big India presence ──
+'gusto',
+'zoominfo',
+'6sense',
+'salesloft',
+'greenhouse', // Greenhouse itself
     ],
     
     // Internal state

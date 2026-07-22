@@ -23,7 +23,6 @@ const companySiteNames = [
   '3pillarglobal',
   'stable-money1',
   'jobgether',
-  'retailmenot',
   'paytm',
   'lingarogroup',
   'gohighlevel',
@@ -53,14 +52,11 @@ const companySiteNames = [
   'acceldata',
   'alifsemi',
   'idt',
-  'Brillio',
-  'ShopBack',
   'hevodata',
   'findem',
   'accurate',
   'tryjeeves',
   'spreetail',
-  'mythic-ai',
   'pattern',
   'nextgenfed',
   'economicmodeling',
@@ -95,9 +91,7 @@ const companySiteNames = [
   '100ms',
 
   // ── Discovered via API scan ──
-  'dreamsports',
   'mindtickle',
-  'upstox',
   'dozee',
   'outreach',
   'cred',
@@ -109,7 +103,11 @@ const companySiteNames = [
   'epifi',
   'freshworks',
   'pocketfm',
-  
+  // ── High-confidence Indian companies ──
+'plivo',
+
+// ── Global tech using Lever ──
+'walkme',
 
 ];
 

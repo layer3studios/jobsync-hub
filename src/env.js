@@ -77,6 +77,15 @@ export const GEMMA_SCRAPER_API_KEYS = process.env.GEMMA_SCRAPER_API_KEYS || '';
 export const GEMMA_MODEL = process.env.GEMMA_MODEL || 'gemma-4-26b-a4b-it';
 export const GEMMA_BASE_URL = process.env.GEMMA_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta';
 
+// ─── Admin analytics (PostHog Query API) ──────────────────────────
+// Server-only. The personal key (phx_) is NEVER exposed to the client. All three are
+// optional at boot: when POSTHOG_PERSONAL_API_KEY is absent the admin analytics
+// endpoints return 503 and the rest of the app runs unaffected (do not crash).
+export const POSTHOG_HOST = process.env.POSTHOG_HOST || 'https://eu.i.posthog.com';
+export const POSTHOG_PROJECT_ID = process.env.POSTHOG_PROJECT_ID || '';
+export const POSTHOG_PERSONAL_API_KEY = process.env.POSTHOG_PERSONAL_API_KEY || '';
+export const ANALYTICS_CACHE_TTL_MS = parseInt(process.env.ANALYTICS_CACHE_TTL_MS, 10) || 300000;
+
 // SMTP config is optional — only used if EMAIL_USER + EMAIL_PASS are set.
 export const EMAIL_CONFIG = process.env.EMAIL_USER && process.env.EMAIL_PASS
   ? {
