@@ -11,18 +11,31 @@ const PAGEVIEW = '$pageview';
 // since → a HogQL datetime literal. `s` is a validated ISO string (route layer).
 const at = (s) => `toDateTime('${s}')`;
 
+// count() of rows matching `condition` since `s`.
+const countWhere = (condition, s) =>
+  `SELECT count() FROM events WHERE ${condition} AND timestamp >= ${at(s)}`;
+
 // count() of one event since `s`.
-const countEvent = (event, s) =>
-  `SELECT count() FROM events WHERE event = '${event}' AND timestamp >= ${at(s)}`;
+const countEvent = (event, s) => countWhere(`event = '${event}'`, s);
 
 // A per-day time series of `agg` over $pageview since `s`.
 const pageviewsPerDay = (agg, s) =>
   `SELECT toDate(timestamp) AS day, ${agg} AS value FROM events `
   + `WHERE event = '${PAGEVIEW}' AND timestamp >= ${at(s)} GROUP BY day ORDER BY day`;
 
-// One-row funnel: a countIf() column per stage, in stage order (D2).
-const funnel = (events, s) => {
-  const columns = events.map((event) => `countIf(event = '${event}')`).join(', ');
+// Stage label → HogQL condition, for stages that are NOT a simple event-name match.
+// Onboarding is ONE event (`employer_onboarding_step`) with a `step` property.
+const STAGE_CONDITIONS = {
+  onboarding_started: "event = 'employer_onboarding_step' AND properties.step = 'company_created'",
+  onboarding_completed: "event = 'employer_onboarding_step' AND properties.step = 'company_saved'",
+};
+
+// One-row funnel: a countIf() column per stage, in stage order (D2). Stages default to
+// an event-name match; STAGE_CONDITIONS overrides for property-based stages.
+const funnel = (stages, s) => {
+  const columns = stages
+    .map((stage) => `countIf(${STAGE_CONDITIONS[stage] ?? `event = '${stage}'`})`)
+    .join(', ');
   return `SELECT ${columns} FROM events WHERE timestamp >= ${at(s)}`;
 };
 
@@ -43,10 +56,10 @@ const deviceBuckets = (s) =>
 
 // Ordered stage lists so the route layer can label a funnel's one-row result.
 export const FUNNEL_STAGES = {
-  seeker_conversion_funnel: ['jobs_list_viewed', 'job_viewed', 'apply_started', 'apply_submitted'],
+  seeker_conversion_funnel: ['jobs_list_viewed', 'job_detail_viewed', 'apply_started', 'apply_submitted'],
   employer_conversion_funnel: [
     'employer_signup_completed', 'onboarding_started', 'onboarding_completed',
-    'posting_form_opened', 'posting_created',
+    'posting_form_opened', 'employer_posting_created',
   ],
 };
 
@@ -62,7 +75,7 @@ export const QUERIES = {
   seeker_signups: (s) => countEvent('seeker_signup_completed', s),
   seeker_logins: (s) => countEvent('seeker_login_completed', s),
   jobs_list_views: (s) => countEvent('jobs_list_viewed', s),
-  job_detail_views: (s) => countEvent('job_viewed', s),
+  job_detail_views: (s) => countEvent('job_detail_viewed', s),
   apply_started: (s) => countEvent('apply_started', s),
   apply_submitted: (s) => countEvent('apply_submitted', s),
   apply_success_viewed: (s) => countEvent('apply_success_viewed', s),
@@ -71,21 +84,21 @@ export const QUERIES = {
   // Employer funnel
   employer_signups: (s) => countEvent('employer_signup_completed', s),
   employer_logins: (s) => countEvent('employer_login_completed', s),
-  onboarding_started: (s) => countEvent('onboarding_started', s),
-  onboarding_completed: (s) => countEvent('onboarding_completed', s),
-  postings_created: (s) => countEvent('posting_created', s),
-  postings_published: (s) => countEvent('posting_published', s),
+  onboarding_started: (s) => countWhere(STAGE_CONDITIONS.onboarding_started, s),
+  onboarding_completed: (s) => countWhere(STAGE_CONDITIONS.onboarding_completed, s),
+  postings_created: (s) => countEvent('employer_posting_created', s),
+  postings_published: (s) => countEvent('employer_posting_published', s),
   employer_conversion_funnel: (s) => funnel(FUNNEL_STAGES.employer_conversion_funnel, s),
 
   // Employer engagement
-  applicants_viewed: (s) => countEvent('applicant_viewed', s),
-  applicants_moved_stage: (s) => countEvent('applicant_moved_stage', s),
-  applicants_archived: (s) => countEvent('applicant_archived', s),
-  notes_added: (s) => countEvent('note_added', s),
+  applicants_viewed: (s) => countEvent('applicants_viewed', s),
+  applicants_moved_stage: (s) => countEvent('applicants_moved_stage', s),
+  applicants_archived: (s) => countEvent('applicants_archived', s),
+  notes_added: (s) => countEvent('applicant_note_added', s),
 
   // Team invites
-  invites_sent: (s) => countEvent('invite_sent', s),
-  invites_accepted: (s) => countEvent('invite_accepted', s),
+  invites_sent: (s) => countEvent('team_invite_sent', s),
+  invites_accepted: (s) => countEvent('team_invite_accepted', s),
 
   // Traffic sources
   traffic_by_referrer: (s) => referrerBuckets(s),
