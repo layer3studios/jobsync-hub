@@ -187,6 +187,111 @@ test('PATCH /:id/role demoting the other super succeeds when two supers exist (g
   assert.equal(res.body.admin.role, 'admin');
 });
 
+async function seedPending(inviterId, email = 'pending@x.com') {
+  return createAdminInvite({ email, role: 'admin', invitedByAdminUserId: inviterId });
+}
+
+async function seedEverActivatedInactive(inviterId, email = 'was@x.com') {
+  const row = await createAdminInvite({ email, role: 'admin', invitedByAdminUserId: inviterId });
+  const { activateAdminByInviteToken } = await import('../../src/models/admin/index.js');
+  await activateAdminByInviteToken(row.inviteToken, email);
+  await (await col('admin_users')).updateOne({ _id: row._id }, { $set: { isActive: false } });
+  return row;
+}
+
+test('POST /:id/resend-invite on pending row → 200 with fresh token + FRONTEND_URL inviteUrl', async () => {
+  const superAdmin = await seed('super@x.com', 'super_admin');
+  const pending = await seedPending(superAdmin._id);
+  const res = await request(buildApp()).post(`/api/admin/team/${pending._id}/resend-invite`)
+    .set('Cookie', cookieFor(superAdmin));
+  assert.equal(res.status, 200);
+  const { invite } = res.body;
+  assert.match(invite.inviteToken, /^[0-9a-f]{64}$/);
+  assert.notEqual(invite.inviteToken, pending.inviteToken);
+  assert.ok(new Date(invite.inviteExpiresAt) > new Date(Date.now() + 6 * 24 * 3600 * 1000));
+  assert.equal(invite.inviteUrl, `${FRONTEND_URL}/admin/invites/${invite.inviteToken}`);
+});
+
+test('POST /:id/resend-invite on an active admin → 400 CANNOT_RESEND_ACTIVE_ADMIN', async () => {
+  const superAdmin = await seed('super@x.com', 'super_admin');
+  const active = await seed('active@x.com', 'admin');
+  const res = await request(buildApp()).post(`/api/admin/team/${active._id}/resend-invite`)
+    .set('Cookie', cookieFor(superAdmin));
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, 'CANNOT_RESEND_ACTIVE_ADMIN');
+});
+
+test('POST /:id/resend-invite on an ever-activated inactive admin → 400 CANNOT_RESEND_ACTIVATED_ADMIN', async () => {
+  const superAdmin = await seed('super@x.com', 'super_admin');
+  const was = await seedEverActivatedInactive(superAdmin._id);
+  const res = await request(buildApp()).post(`/api/admin/team/${was._id}/resend-invite`)
+    .set('Cookie', cookieFor(superAdmin));
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, 'CANNOT_RESEND_ACTIVATED_ADMIN');
+});
+
+test('POST /:id/resend-invite on an unknown id → 404', async () => {
+  const superAdmin = await seed('super@x.com', 'super_admin');
+  const res = await request(buildApp()).post(`/api/admin/team/${new (await import('mongodb')).ObjectId()}/resend-invite`)
+    .set('Cookie', cookieFor(superAdmin));
+  assert.equal(res.status, 404);
+});
+
+test('POST /:id/resend-invite as non-super_admin → 403 NOT_SUPER_ADMIN', async () => {
+  const superAdmin = await seed('super@x.com', 'super_admin');
+  const plain = await seed('plain@x.com', 'admin');
+  const pending = await seedPending(superAdmin._id);
+  const res = await request(buildApp()).post(`/api/admin/team/${pending._id}/resend-invite`)
+    .set('Cookie', cookieFor(plain));
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'NOT_SUPER_ADMIN');
+});
+
+test('DELETE /:id/invite on pending row → 200 and the row is gone', async () => {
+  const superAdmin = await seed('super@x.com', 'super_admin');
+  const pending = await seedPending(superAdmin._id);
+  const res = await request(buildApp()).delete(`/api/admin/team/${pending._id}/invite`)
+    .set('Cookie', cookieFor(superAdmin));
+  assert.equal(res.status, 200);
+  assert.equal(res.body.adminUserId, pending._id.toString());
+  assert.equal(await (await col('admin_users')).findOne({ _id: pending._id }), null);
+});
+
+test('DELETE /:id/invite on an active admin → 400 CANNOT_REVOKE_ACTIVE_ADMIN', async () => {
+  const superAdmin = await seed('super@x.com', 'super_admin');
+  const active = await seed('active@x.com', 'admin');
+  const res = await request(buildApp()).delete(`/api/admin/team/${active._id}/invite`)
+    .set('Cookie', cookieFor(superAdmin));
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, 'CANNOT_REVOKE_ACTIVE_ADMIN');
+});
+
+test('DELETE /:id/invite on an ever-activated inactive admin → 400 CANNOT_REVOKE_ACTIVATED_ADMIN', async () => {
+  const superAdmin = await seed('super@x.com', 'super_admin');
+  const was = await seedEverActivatedInactive(superAdmin._id);
+  const res = await request(buildApp()).delete(`/api/admin/team/${was._id}/invite`)
+    .set('Cookie', cookieFor(superAdmin));
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, 'CANNOT_REVOKE_ACTIVATED_ADMIN');
+});
+
+test('DELETE /:id/invite on an unknown id → 404', async () => {
+  const superAdmin = await seed('super@x.com', 'super_admin');
+  const res = await request(buildApp()).delete(`/api/admin/team/${new (await import('mongodb')).ObjectId()}/invite`)
+    .set('Cookie', cookieFor(superAdmin));
+  assert.equal(res.status, 404);
+});
+
+test('DELETE /:id/invite as non-super_admin → 403 NOT_SUPER_ADMIN', async () => {
+  const superAdmin = await seed('super@x.com', 'super_admin');
+  const plain = await seed('plain@x.com', 'admin');
+  const pending = await seedPending(superAdmin._id);
+  const res = await request(buildApp()).delete(`/api/admin/team/${pending._id}/invite`)
+    .set('Cookie', cookieFor(plain));
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'NOT_SUPER_ADMIN');
+});
+
 test('every PATCH route as non-super admin → 403 NOT_SUPER_ADMIN', async () => {
   const plain = await seed('plain@x.com', 'admin');
   const target = await seed('other@x.com', 'admin');

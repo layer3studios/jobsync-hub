@@ -11,6 +11,7 @@ import {
   upsertAdminByEmail, markAdminLoggedIn,
   listAdmins, findAdminByInviteToken, createAdminInvite, activateAdminByInviteToken,
   deactivateAdmin, reactivateAdmin, updateAdminRole,
+  resendAdminInvite, revokeAdminInvite,
 } from '../../src/models/admin/index.js';
 
 async function reset() {
@@ -288,6 +289,75 @@ test('updateAdminRole rejects an invalid role string', async () => {
     updateAdminRole(target._id, 'viewer', acting._id.toString()),
     (err) => err.code === 'INVALID_ROLE',
   );
+});
+
+test('resendAdminInvite regenerates token AND expiry', async () => {
+  const inviter = await seedSuper();
+  const row = await createAdminInvite({ email: 'p@x.com', role: 'admin', invitedByAdminUserId: inviter._id });
+  await (await col('admin_users')).updateOne({ _id: row._id }, { $set: { inviteExpiresAt: new Date(Date.now() + 1000) } });
+  const resent = await resendAdminInvite(row._id);
+  assert.notEqual(resent.inviteToken, row.inviteToken);
+  assert.match(resent.inviteToken, /^[0-9a-f]{64}$/);
+  assert.ok(resent.inviteExpiresAt > new Date(Date.now() + 6 * 24 * 3600 * 1000));
+});
+
+test('resendAdminInvite preserves email, role, invitedBy, createdAt', async () => {
+  const inviter = await seedSuper();
+  const row = await createAdminInvite({ email: 'p@x.com', role: 'super_admin', invitedByAdminUserId: inviter._id });
+  const resent = await resendAdminInvite(row._id);
+  assert.equal(resent.email, 'p@x.com');
+  assert.equal(resent.role, 'super_admin');
+  assert.equal(String(resent.invitedByAdminUserId), String(inviter._id));
+  assert.equal(resent.createdAt.getTime(), row.createdAt.getTime());
+});
+
+test('resendAdminInvite throws for an active admin', async () => {
+  const row = await seedSuper('active@x.com');
+  await assert.rejects(resendAdminInvite(row._id), (err) => err.code === 'CANNOT_RESEND_ACTIVE_ADMIN');
+});
+
+test('resendAdminInvite throws for an ever-activated (now inactive) admin', async () => {
+  const inviter = await seedSuper();
+  const row = await createAdminInvite({ email: 'was@x.com', role: 'admin', invitedByAdminUserId: inviter._id });
+  await activateAdminByInviteToken(row.inviteToken, 'was@x.com');
+  await (await col('admin_users')).updateOne({ _id: row._id }, { $set: { isActive: false } });
+  await assert.rejects(resendAdminInvite(row._id), (err) => err.code === 'CANNOT_RESEND_ACTIVATED_ADMIN');
+});
+
+test('resendAdminInvite throws NOT_FOUND for an unknown id', async () => {
+  await assert.rejects(resendAdminInvite(new ObjectId().toString()), (err) => err.code === 'NOT_FOUND');
+});
+
+test('revokeAdminInvite deletes the pending row', async () => {
+  const inviter = await seedSuper();
+  const row = await createAdminInvite({ email: 'p@x.com', role: 'admin', invitedByAdminUserId: inviter._id });
+  const result = await revokeAdminInvite(row._id);
+  assert.equal(result.adminUserId, row._id.toString());
+  assert.equal(await (await col('admin_users')).findOne({ _id: row._id }), null);
+});
+
+test('revokeAdminInvite throws for an active admin', async () => {
+  const row = await seedSuper('active@x.com');
+  await assert.rejects(revokeAdminInvite(row._id), (err) => err.code === 'CANNOT_REVOKE_ACTIVE_ADMIN');
+});
+
+test('revokeAdminInvite throws for an ever-activated (now inactive) admin', async () => {
+  const inviter = await seedSuper();
+  const row = await createAdminInvite({ email: 'was@x.com', role: 'admin', invitedByAdminUserId: inviter._id });
+  await activateAdminByInviteToken(row.inviteToken, 'was@x.com');
+  await (await col('admin_users')).updateOne({ _id: row._id }, { $set: { isActive: false } });
+  await assert.rejects(revokeAdminInvite(row._id), (err) => err.code === 'CANNOT_REVOKE_ACTIVATED_ADMIN');
+});
+
+test('revokeAdminInvite throws NOT_FOUND for an unknown id', async () => {
+  await assert.rejects(revokeAdminInvite(new ObjectId().toString()), (err) => err.code === 'NOT_FOUND');
+});
+
+test('resend/revoke refuse a deactivated BOOTSTRAP admin (no invite token, activatedAt null)', async () => {
+  const row = await upsertAdminByEmail({ email: 'boot@x.com', role: 'admin' }); // bootstrap: no invite fields
+  await (await col('admin_users')).updateOne({ _id: row._id }, { $set: { isActive: false } });
+  await assert.rejects(resendAdminInvite(row._id), (err) => err.code === 'CANNOT_RESEND_ACTIVATED_ADMIN');
+  await assert.rejects(revokeAdminInvite(row._id), (err) => err.code === 'CANNOT_REVOKE_ACTIVATED_ADMIN');
 });
 
 test('ensureAdminUserIndexes creates the sparse unique inviteToken index', async () => {

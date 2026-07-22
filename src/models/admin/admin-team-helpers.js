@@ -116,6 +116,46 @@ export async function reactivateAdmin(adminUserId) {
   return collection.findOne({ _id: oid });
 }
 
+/**
+ * Row must be TRULY pending: inactive, never activated, and still holding an
+ * invite token. The token check matters — a deactivated bootstrap-seeded admin
+ * also has activatedAt:null (bootstrap rows never set it) but has no token, and
+ * must never be resend/revoke-eligible (ever-active rows are preserved forever).
+ */
+async function findPendingInvite(adminUserId, activeCode, activatedCode) {
+  const oid = toOid(adminUserId);
+  const collection = await adminUsersCol();
+  const row = oid ? await collection.findOne({ _id: oid }) : null;
+  if (!row) throw teamError('NOT_FOUND', 'Admin not found');
+  if (row.isActive) throw teamError(activeCode, 'Admin is already active');
+  if (row.activatedAt != null || !row.inviteToken) {
+    throw teamError(activatedCode, 'This admin was previously activated — use deactivate/reactivate instead');
+  }
+  return { collection, row, oid };
+}
+
+/** Regenerate token + 7-day expiry for a pending invite (D1 — old URL dies now). */
+export async function resendAdminInvite(adminUserId) {
+  const { collection, oid } = await findPendingInvite(
+    adminUserId, 'CANNOT_RESEND_ACTIVE_ADMIN', 'CANNOT_RESEND_ACTIVATED_ADMIN',
+  );
+  const now = new Date();
+  await collection.updateOne({ _id: oid }, { $set: {
+    inviteToken: crypto.randomBytes(32).toString('hex'), // R1: 64-char hex, mirrors createAdminInvite
+    inviteExpiresAt: new Date(now.getTime() + INVITE_TTL_MS),
+  } }); // audit: invite_resent
+  return collection.findOne({ _id: oid });
+}
+
+/** Hard-delete a never-activated pending invite (D2 — no audit trail exists to lose). */
+export async function revokeAdminInvite(adminUserId) {
+  const { collection, row, oid } = await findPendingInvite(
+    adminUserId, 'CANNOT_REVOKE_ACTIVE_ADMIN', 'CANNOT_REVOKE_ACTIVATED_ADMIN',
+  );
+  await collection.deleteOne({ _id: oid }); // audit: invite_revoked
+  return { adminUserId: row._id.toString() };
+}
+
 /** Change role. Self-demotion + last-super-demotion guards. */
 export async function updateAdminRole(adminUserId, newRole, actingSuperAdminId) {
   if (!ROLES.includes(newRole)) throw teamError('INVALID_ROLE', 'Role must be super_admin or admin');

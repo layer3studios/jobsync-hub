@@ -11,6 +11,7 @@ import { asyncHandler } from '../../middleware/async-handler-middleware.js';
 import { HttpError } from '../../middleware/error-handler-middleware.js';
 import {
   listAdmins, createAdminInvite, deactivateAdmin, reactivateAdmin, updateAdminRole,
+  resendAdminInvite, revokeAdminInvite,
 } from '../../models/admin/index.js';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -25,6 +26,10 @@ const CODE_STATUS = {
   CANNOT_DEMOTE_SELF: 400,
   CANNOT_REMOVE_LAST_SUPER_ADMIN: 400,
   CANNOT_DEMOTE_LAST_SUPER_ADMIN: 400,
+  CANNOT_RESEND_ACTIVE_ADMIN: 400,
+  CANNOT_RESEND_ACTIVATED_ADMIN: 400,
+  CANNOT_REVOKE_ACTIVE_ADMIN: 400,
+  CANNOT_REVOKE_ACTIVATED_ADMIN: 400,
 };
 
 function toHttp(err) {
@@ -85,6 +90,35 @@ router.post('/invite', requireSuperAdmin, asyncHandler(async (req, res) => {
         inviteUrl: `${FRONTEND_URL}/admin/invites/${row.inviteToken}`,
       },
     });
+  } catch (err) { throw toHttp(err); }
+}));
+
+// POST /:adminUserId/resend-invite — new token + expiry for a pending invite;
+// the old URL becomes invalid immediately (D1). super_admin only.
+router.post('/:adminUserId/resend-invite', requireSuperAdmin, asyncHandler(async (req, res) => {
+  try {
+    // audit: invite_resent
+    const row = await resendAdminInvite(req.params.adminUserId);
+    res.json({
+      invite: {
+        adminUserId: row._id.toString(),
+        email: row.email,
+        role: row.role,
+        inviteToken: row.inviteToken,
+        inviteExpiresAt: row.inviteExpiresAt,
+        inviteUrl: `${FRONTEND_URL}/admin/invites/${row.inviteToken}`,
+      },
+    });
+  } catch (err) { throw toHttp(err); }
+}));
+
+// DELETE /:adminUserId/invite — hard-delete a never-activated pending row (D2).
+// Ever-activated admins are blocked here; they go through deactivate. super_admin only.
+router.delete('/:adminUserId/invite', requireSuperAdmin, asyncHandler(async (req, res) => {
+  try {
+    // audit: invite_revoked
+    const result = await revokeAdminInvite(req.params.adminUserId);
+    res.json({ adminUserId: result.adminUserId });
   } catch (err) { throw toHttp(err); }
 }));
 
