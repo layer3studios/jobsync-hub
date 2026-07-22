@@ -9,7 +9,7 @@ import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 
 import { JWT_SECRET, ADMIN_JWT_TTL_HOURS, IS_PRODUCTION } from '../../env.js';
-import { findAdminByEmail, markAdminLoggedIn } from '../../models/admin/index.js';
+import { findAdminByEmail, markAdminLoggedIn, activateAdminByInviteToken } from '../../models/admin/index.js';
 import { verifyEmployerGoogleIdToken } from '../../services/auth/verify-google-token-service.js';
 import { requireAdmin } from '../../middleware/require-admin-middleware.js';
 import { asyncHandler } from '../../middleware/async-handler-middleware.js';
@@ -49,6 +49,24 @@ export function createAdminAuthRouter({ verifyToken = verifyEmployerGoogleIdToke
 
     // verifyToken throws HttpError(401, 'Invalid Google token', ...) on failure.
     const profile = await verifyToken(idToken);
+
+    // Invite acceptance: match by token (not by active-email lookup), activate the
+    // pending row, consume the token. Non-invite logins are unchanged below.
+    const inviteToken = req.body?.inviteToken;
+    if (inviteToken) {
+      let admin;
+      try {
+        admin = await activateAdminByInviteToken(inviteToken, profile.email); // audit: admin_invite_accepted
+      } catch (err) {
+        if (err?.code === 'INVITE_EMAIL_MISMATCH' || err?.code === 'INVITE_INVALID') {
+          throw new HttpError(403, err.message, err.code);
+        }
+        throw err;
+      }
+      res.cookie(ADMIN_COOKIE_NAME, signAdminToken(admin), cookieOptions());
+      res.json({ admin: toPublicAdmin(admin) }); // activation already stamped lastLoginAt
+      return;
+    }
 
     const admin = await findAdminByEmail(profile.email);
     if (!admin) throw new HttpError(403, 'Not an admin', 'NOT_AN_ADMIN');
