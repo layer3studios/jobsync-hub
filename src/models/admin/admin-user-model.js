@@ -9,18 +9,18 @@
 import { ObjectId } from 'mongodb';
 import { col } from '../../Db/connection.js';
 
-const EMAIL_COLLATION = { locale: 'en', strength: 2 };
+export const EMAIL_COLLATION = { locale: 'en', strength: 2 };
 
 const adminUsersCol = () => col('admin_users');
 
 /** Lowercase + trim an email; returns '' for null/undefined/non-string input. */
-function normalizeEmail(email) {
+export function normalizeEmail(email) {
   if (typeof email !== 'string') return '';
   return email.trim().toLowerCase();
 }
 
 /** Accept a string or ObjectId; return an ObjectId or null. */
-function toOid(id) {
+export function toOid(id) {
   if (id instanceof ObjectId) return id;
   if (typeof id === 'string' && ObjectId.isValid(id)) return new ObjectId(id);
   return null;
@@ -32,6 +32,13 @@ export async function ensureAdminUserIndexes() {
   await collection.createIndex(
     { email: 1 },
     { unique: true, collation: EMAIL_COLLATION, name: 'admin_users_email' },
+  );
+  // Sparse+unique: one row per live invite token. NOTE sparse skips only MISSING
+  // fields — an explicit null IS indexed — so token clearing must $unset, never
+  // set null (see admin-team-helpers.activateAdminByInviteToken).
+  await collection.createIndex(
+    { inviteToken: 1 },
+    { unique: true, sparse: true, name: 'admin_users_invite_token' },
   );
 }
 

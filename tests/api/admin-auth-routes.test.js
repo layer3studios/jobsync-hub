@@ -102,6 +102,46 @@ test('GET /me with a valid cookie → 200 admin identity', async () => {
   assert.equal(res.body.admin.adminUserId, row._id.toString());
 });
 
+test('POST /google with valid inviteToken + matching email activates the row → 200', async () => {
+  const inviter = await upsertAdminByEmail({ email: 'super@x.com', role: 'super_admin' });
+  const { createAdminInvite } = await import('../../src/models/admin/index.js');
+  const pending = await createAdminInvite({ email: PROFILE.email, role: 'admin', invitedByAdminUserId: inviter._id });
+
+  const app = buildApp(stubReturning(PROFILE));
+  const res = await request(app).post('/api/admin/auth/google').send({ idToken: 'x', inviteToken: pending.inviteToken });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.admin.email, PROFILE.email);
+  const after = await findAdminById(pending._id); // findAdminById only returns ACTIVE rows
+  assert.ok(after, 'row is now active');
+  assert.equal(after.inviteToken, undefined);
+  assert.ok(after.activatedAt instanceof Date);
+  const setCookie = (res.headers['set-cookie'] || []).join(';');
+  assert.match(setCookie, /jm_admin_token=/);
+});
+
+test('POST /google with valid inviteToken but mismatched email → 403 INVITE_EMAIL_MISMATCH', async () => {
+  const inviter = await upsertAdminByEmail({ email: 'super@x.com', role: 'super_admin' });
+  const { createAdminInvite } = await import('../../src/models/admin/index.js');
+  const pending = await createAdminInvite({ email: 'someone-else@x.com', role: 'admin', invitedByAdminUserId: inviter._id });
+
+  const app = buildApp(stubReturning(PROFILE)); // Google verifies admin@x.com, invite is for someone-else
+  const res = await request(app).post('/api/admin/auth/google').send({ idToken: 'x', inviteToken: pending.inviteToken });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'INVITE_EMAIL_MISMATCH');
+});
+
+test('POST /google with expired inviteToken → 403 INVITE_INVALID', async () => {
+  const inviter = await upsertAdminByEmail({ email: 'super@x.com', role: 'super_admin' });
+  const { createAdminInvite } = await import('../../src/models/admin/index.js');
+  const pending = await createAdminInvite({ email: PROFILE.email, role: 'admin', invitedByAdminUserId: inviter._id });
+  await (await col('admin_users')).updateOne({ _id: pending._id }, { $set: { inviteExpiresAt: new Date(Date.now() - 1000) } });
+
+  const app = buildApp(stubReturning(PROFILE));
+  const res = await request(app).post('/api/admin/auth/google').send({ idToken: 'x', inviteToken: pending.inviteToken });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'INVITE_INVALID');
+});
+
 test('POST /logout clears the jm_admin_token cookie', async () => {
   const res = await request(buildApp()).post('/api/admin/auth/logout');
   assert.equal(res.status, 200);

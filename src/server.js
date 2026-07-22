@@ -40,6 +40,7 @@ import usersRouter from './api/seeker/seeker-users-routes.js';
 import adminRouter from './api/admin/admin-routes.js';
 import { createAdminAuthRouter } from './api/admin/admin-auth-routes.js';
 import { createAdminAnalyticsRouter } from './api/admin/admin-analytics-routes.js';
+import adminTeamRouter from './api/admin/admin-team-routes.js';
 import newsRouter from './api/seeker/news-routes.js';
 import { createEmployerAuthRouter } from './api/employer/employer-auth-routes.js';
 import employerCompanyRouter from './api/employer/employer-company-routes.js';
@@ -92,6 +93,7 @@ app.use('/api/seeker/users', usersRouter); // legacy 410 wildcard
 // Admin auth (jm_admin_token). MUST mount before /api/admin so /api/admin/auth/*
 // is not gated by requireAdmin (a user with no admin session must be able to log in).
 app.use('/api/admin/auth', createAdminAuthRouter());
+app.use('/api/admin/team', requireAdmin, adminTeamRouter);
 app.use('/api/admin', adminRouter);
 // Admin analytics: jm_admin_token via new require-admin-middleware (D5 — standalone,
 // no seeker chain). Kept mounted separately (not under adminRouter) to preserve

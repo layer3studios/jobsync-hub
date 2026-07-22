@@ -9,6 +9,8 @@ import { col } from '../../src/Db/connection.js';
 import {
   ensureAdminUserIndexes, findAdminByEmail, findAdminById,
   upsertAdminByEmail, markAdminLoggedIn,
+  listAdmins, findAdminByInviteToken, createAdminInvite, activateAdminByInviteToken,
+  deactivateAdmin, reactivateAdmin, updateAdminRole,
 } from '../../src/models/admin/index.js';
 
 async function reset() {
@@ -123,4 +125,175 @@ test('ensureAdminUserIndexes creates a unique email index with collation strengt
   assert.ok(emailIndex, 'email index exists');
   assert.equal(emailIndex.unique, true);
   assert.equal(emailIndex.collation.strength, 2);
+});
+
+// ---------------------------------------------------------------------------
+// Team-management helpers (feat/admin-team-management chunk 1)
+// ---------------------------------------------------------------------------
+
+async function seedSuper(email = 'super@x.com') {
+  return upsertAdminByEmail({ email, role: 'super_admin' });
+}
+
+test('listAdmins returns all rows, newest first', async () => {
+  const a = await upsertAdminByEmail({ email: 'old@x.com' });
+  await (await col('admin_users')).updateOne({ _id: a._id }, { $set: { createdAt: new Date(Date.now() - 60000) } });
+  await upsertAdminByEmail({ email: 'new@x.com' });
+  const rows = await listAdmins();
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].email, 'new@x.com');
+});
+
+test('listAdmins includes inactive rows', async () => {
+  const a = await upsertAdminByEmail({ email: 'gone@x.com' });
+  await (await col('admin_users')).updateOne({ _id: a._id }, { $set: { isActive: false } });
+  const rows = await listAdmins();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].isActive, false);
+});
+
+test('findAdminByInviteToken returns row for valid non-expired token', async () => {
+  const inviter = await seedSuper();
+  const row = await createAdminInvite({ email: 'inv@x.com', role: 'admin', invitedByAdminUserId: inviter._id });
+  const found = await findAdminByInviteToken(row.inviteToken);
+  assert.equal(found.email, 'inv@x.com');
+});
+
+test('findAdminByInviteToken returns null for expired token', async () => {
+  const inviter = await seedSuper();
+  const row = await createAdminInvite({ email: 'inv@x.com', role: 'admin', invitedByAdminUserId: inviter._id });
+  await (await col('admin_users')).updateOne({ _id: row._id }, { $set: { inviteExpiresAt: new Date(Date.now() - 1000) } });
+  assert.equal(await findAdminByInviteToken(row.inviteToken), null);
+});
+
+test('findAdminByInviteToken returns null for an already-active row', async () => {
+  const inviter = await seedSuper();
+  const row = await createAdminInvite({ email: 'inv@x.com', role: 'admin', invitedByAdminUserId: inviter._id });
+  await (await col('admin_users')).updateOne({ _id: row._id }, { $set: { isActive: true } });
+  assert.equal(await findAdminByInviteToken(row.inviteToken), null);
+});
+
+test('createAdminInvite creates a pending row with all invite fields and isActive false', async () => {
+  const inviter = await seedSuper();
+  const row = await createAdminInvite({ email: 'New@X.com', role: 'admin', invitedByAdminUserId: inviter._id });
+  assert.equal(row.email, 'new@x.com');
+  assert.equal(row.isActive, false);
+  assert.match(row.inviteToken, /^[0-9a-f]{64}$/);
+  assert.ok(row.inviteExpiresAt > new Date(Date.now() + 6 * 24 * 3600 * 1000));
+  assert.equal(String(row.invitedByAdminUserId), String(inviter._id));
+  assert.equal(row.activatedAt, null);
+  assert.equal(row.lastLoginAt, null);
+});
+
+test('createAdminInvite on an existing INACTIVE row overwrites token, expiry, and role', async () => {
+  const inviter = await seedSuper();
+  const first = await createAdminInvite({ email: 'again@x.com', role: 'admin', invitedByAdminUserId: inviter._id });
+  const second = await createAdminInvite({ email: 'again@x.com', role: 'super_admin', invitedByAdminUserId: inviter._id });
+  assert.equal(String(second._id), String(first._id)); // same row (D4 — createdAt preserved)
+  assert.notEqual(second.inviteToken, first.inviteToken);
+  assert.equal(second.role, 'super_admin');
+});
+
+test('createAdminInvite on an existing ACTIVE row throws EMAIL_ALREADY_ADMIN', async () => {
+  const inviter = await seedSuper();
+  await upsertAdminByEmail({ email: 'active@x.com' });
+  await assert.rejects(
+    createAdminInvite({ email: 'active@x.com', role: 'admin', invitedByAdminUserId: inviter._id }),
+    (err) => err.code === 'EMAIL_ALREADY_ADMIN',
+  );
+});
+
+test('activateAdminByInviteToken activates, clears token fields, stamps activatedAt + lastLoginAt', async () => {
+  const inviter = await seedSuper();
+  const row = await createAdminInvite({ email: 'join@x.com', role: 'admin', invitedByAdminUserId: inviter._id });
+  const activated = await activateAdminByInviteToken(row.inviteToken, 'JOIN@x.com');
+  assert.equal(activated.isActive, true);
+  assert.equal(activated.inviteToken, undefined); // $unset, not null — sparse index safety
+  assert.equal(activated.inviteExpiresAt, undefined);
+  assert.ok(activated.activatedAt instanceof Date);
+  assert.ok(activated.lastLoginAt instanceof Date);
+});
+
+test('activateAdminByInviteToken with wrong email throws INVITE_EMAIL_MISMATCH', async () => {
+  const inviter = await seedSuper();
+  const row = await createAdminInvite({ email: 'join@x.com', role: 'admin', invitedByAdminUserId: inviter._id });
+  await assert.rejects(
+    activateAdminByInviteToken(row.inviteToken, 'other@x.com'),
+    (err) => err.code === 'INVITE_EMAIL_MISMATCH',
+  );
+});
+
+test('activateAdminByInviteToken with expired token throws INVITE_INVALID', async () => {
+  const inviter = await seedSuper();
+  const row = await createAdminInvite({ email: 'join@x.com', role: 'admin', invitedByAdminUserId: inviter._id });
+  await (await col('admin_users')).updateOne({ _id: row._id }, { $set: { inviteExpiresAt: new Date(Date.now() - 1000) } });
+  await assert.rejects(
+    activateAdminByInviteToken(row.inviteToken, 'join@x.com'),
+    (err) => err.code === 'INVITE_INVALID',
+  );
+});
+
+test('deactivateAdmin blocks self-deactivation', async () => {
+  const me = await seedSuper();
+  await assert.rejects(
+    deactivateAdmin(me._id, me._id.toString()),
+    (err) => err.code === 'CANNOT_DEACTIVATE_SELF',
+  );
+});
+
+test('deactivateAdmin blocks removing the last active super_admin', async () => {
+  const only = await seedSuper();
+  const acting = await upsertAdminByEmail({ email: 'plain@x.com', role: 'admin' });
+  await assert.rejects(
+    deactivateAdmin(only._id, acting._id.toString()),
+    (err) => err.code === 'CANNOT_REMOVE_LAST_SUPER_ADMIN',
+  );
+});
+
+test('deactivateAdmin succeeds when another active super_admin exists', async () => {
+  const target = await seedSuper('s1@x.com');
+  const other = await seedSuper('s2@x.com');
+  const after = await deactivateAdmin(target._id, other._id.toString());
+  assert.equal(after.isActive, false);
+});
+
+test('updateAdminRole blocks self-demotion', async () => {
+  const me = await seedSuper();
+  await assert.rejects(
+    updateAdminRole(me._id, 'admin', me._id.toString()),
+    (err) => err.code === 'CANNOT_DEMOTE_SELF',
+  );
+});
+
+test('updateAdminRole blocks demoting the last active super_admin', async () => {
+  const only = await seedSuper();
+  const acting = await upsertAdminByEmail({ email: 'plain@x.com', role: 'admin' });
+  await assert.rejects(
+    updateAdminRole(only._id, 'admin', acting._id.toString()),
+    (err) => err.code === 'CANNOT_DEMOTE_LAST_SUPER_ADMIN',
+  );
+});
+
+test('updateAdminRole promotes admin to super_admin', async () => {
+  const acting = await seedSuper();
+  const target = await upsertAdminByEmail({ email: 'up@x.com', role: 'admin' });
+  const after = await updateAdminRole(target._id, 'super_admin', acting._id.toString());
+  assert.equal(after.role, 'super_admin');
+});
+
+test('updateAdminRole rejects an invalid role string', async () => {
+  const acting = await seedSuper();
+  const target = await upsertAdminByEmail({ email: 'up@x.com', role: 'admin' });
+  await assert.rejects(
+    updateAdminRole(target._id, 'viewer', acting._id.toString()),
+    (err) => err.code === 'INVALID_ROLE',
+  );
+});
+
+test('ensureAdminUserIndexes creates the sparse unique inviteToken index', async () => {
+  const indexes = await (await col('admin_users')).indexes();
+  const tokenIndex = indexes.find((i) => i.name === 'admin_users_invite_token');
+  assert.ok(tokenIndex, 'invite token index exists');
+  assert.equal(tokenIndex.unique, true);
+  assert.equal(tokenIndex.sparse, true);
 });
