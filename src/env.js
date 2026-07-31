@@ -101,6 +101,9 @@ export const EMAIL_REPLY_TO_ADDRESS = process.env.EMAIL_REPLY_TO_ADDRESS || '';
 // Master switch, same contract as SYNC_ENABLED: anything other than the literal
 // 'false' keeps email on, so an unset var never silently disables sending.
 export const EMAIL_ENABLED = process.env.EMAIL_ENABLED !== 'false';
+// Gates the 24h interview-reminder sweep. Same contract: only the literal
+// 'false' disables it, so an unset var keeps reminders working.
+export const INTERVIEW_REMINDERS_ENABLED = process.env.INTERVIEW_REMINDERS_ENABLED !== 'false';
 
 // SMTP config is optional — only used if EMAIL_USER + EMAIL_PASS are set.
 export const EMAIL_CONFIG = process.env.EMAIL_USER && process.env.EMAIL_PASS
