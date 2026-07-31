@@ -60,6 +60,9 @@ export async function createInterviewForCompany(companyId, input, createdByEmplo
     applicationId: toOid(input.applicationId),
     postingId: toOid(input.postingId),
     contactId: toOid(input.contactId),
+    // 'manual' = employer proposed specific slots; 'pool' = candidate picks
+    // from the posting's interview_times pool (proposedSlots stays empty).
+    source: input.source ?? 'manual',
     status: INTERVIEW_STATUSES.PROPOSED,
     proposedSlots: input.proposedSlots.map((slot) => ({
       startAtUtc: slot.startAtUtc, durationMinutes: slot.durationMinutes,
@@ -117,6 +120,22 @@ export async function listInterviewsForApplication(companyId, applicationId) {
 export async function findInterviewByBookingToken(token) {
   if (typeof token !== 'string' || !token) return null;
   return (await interviewsCol()).findOne({ bookingToken: token });
+}
+
+/**
+ * Update a scheduled interview's meeting url and bump calendarSequence so the
+ * re-sent .ics (same UID) supersedes the old one. Used when posting defaults
+ * change under already-booked pool interviews.
+ */
+export async function updateInterviewMeetingUrl(companyId, interviewId, meetingUrl) {
+  const companyOid = toOid(companyId);
+  const interviewOid = toOid(interviewId);
+  if (!companyOid || !interviewOid) return null;
+  return (await interviewsCol()).findOneAndUpdate(
+    { _id: interviewOid, companyId: companyOid, status: INTERVIEW_STATUSES.SCHEDULED },
+    { $set: { meetingUrl, updatedAt: new Date() }, $inc: { calendarSequence: 1 } },
+    { returnDocument: 'after' },
+  );
 }
 
 /**

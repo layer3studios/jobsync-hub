@@ -5,6 +5,7 @@
 
 import { cancelInterviewForCompany as defaultCancelInterview } from '../../models/interview/interview-model.js';
 import { cancelInterviewReminders as defaultCancelReminders } from '../../models/interview/interview-reminder-job-model.js';
+import { recycleTimeFromCancelledInterview as defaultRecycleTime } from '../../models/interview/interview-time-booking-model.js';
 import { AUDIT_EVENTS } from '../../models/dpdp/dpdp-constants.js';
 import { appendAudit as defaultAppendAudit } from '../dpdp/audit-log-service.js';
 import { buildInterviewEmailContext as defaultBuildContext } from './interview-context-helpers.js';
@@ -17,6 +18,7 @@ export async function cancelInterviewForCompanyWithNotice(companyId, interviewId
   const {
     cancelInterview = defaultCancelInterview,
     cancelReminders = defaultCancelReminders,
+    recycleTime = defaultRecycleTime,
     appendAuditEntry = defaultAppendAudit,
     buildContext = defaultBuildContext,
     sendCancelledEmails = defaultSendCancelled,
@@ -30,6 +32,14 @@ export async function cancelInterviewForCompanyWithNotice(companyId, interviewId
     await cancelReminders(interview._id);
   } catch (err) {
     console.warn(`[interview] reminder cancellation failed: ${err.message}`);
+  }
+  // Best-effort: a pool interview's time returns to the pool (null for manual
+  // interviews). NOTE: no markNoShow path exists yet — when one lands, wire
+  // recycleTimeFromCancelledInterview there too.
+  try {
+    await recycleTime(interview._id);
+  } catch (err) {
+    console.warn(`[interview] pool-time recycle failed: ${err.message}`);
   }
 
   await appendAuditEntry({

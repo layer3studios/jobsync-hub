@@ -77,6 +77,34 @@ export async function bookInterviewSlot(token, slotIndex, now = new Date()) {
 }
 
 /**
+ * Pool-path booking of the INTERVIEW doc: after a pool time has been claimed
+ * (bookTimeAtomically), copy its confirmed details onto the interview — still
+ * guarded on status 'proposed' + unexpired token, so a raced/expired interview
+ * matches nothing and the caller can recycle the claimed time.
+ */
+export async function bookInterviewFromPoolTime(interviewId, time, now = new Date()) {
+  const interviewOid = toOid(interviewId);
+  if (!interviewOid) return null;
+  return (await interviewsCol()).findOneAndUpdate(
+    { _id: interviewOid, status: INTERVIEW_STATUSES.PROPOSED, bookingTokenExpiresAt: { $gt: now } },
+    {
+      $set: {
+        status: INTERVIEW_STATUSES.SCHEDULED,
+        startAtUtc: time.startAtUtc,
+        durationMinutes: time.durationMinutes,
+        mode: time.mode,
+        meetingUrl: time.meetingUrl,
+        locationText: time.locationText,
+        bookedAt: now,
+        updatedAt: now,
+      },
+      $inc: { calendarSequence: 1 },
+    },
+    { returnDocument: 'after' },
+  );
+}
+
+/**
  * Guarded reschedule: only a SCHEDULED interview goes back to proposed, with
  * fresh slots and a FRESH booking token + expiry — the old link must stop
  * working, which is why the token is replaced, not reused. calendarSequence is
