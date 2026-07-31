@@ -20,6 +20,7 @@
   "type": "module",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@touch4it/ical-timezones": "^1.9.0",
     "abort-controller": "^3.0.0",
     "axios": "^1.12.2",
     "cheerio": "^1.2.0",
@@ -35,8 +36,10 @@
     "groq-sdk": "^0.37.0",
     "he": "^1.2.0",
     "https-proxy-agent": "^8.0.0",
+    "ical-generator": "^11.1.0",
     "jsdom": "^26.1.0",
     "jsonwebtoken": "^9.0.3",
+    "luxon": "^3.7.2",
     "mongodb": "^6.20.0",
     "mongoose": "^9.1.5",
     "multer": "^2.2.0",

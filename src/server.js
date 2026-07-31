@@ -30,6 +30,9 @@ import {
 
 import { ensureAdminUserIndexes } from './models/admin/index.js';
 
+import { ensureInterviewIndexes, ensureInterviewReminderJobIndexes } from './models/interview/index.js';
+import { startInterviewReminderWorker } from './services/interview/interview-reminder-worker.js';
+
 import { initGemma } from './gemma/index.js';
 
 import { runScraper } from './tasks/runScraper.js';
@@ -51,6 +54,8 @@ import employerSavedViewsRouter from './api/employer/employer-saved-views-routes
 import employerStagesRouter from './api/employer/employer-stages-routes.js';
 import employerArchiveReasonsRouter from './api/employer/employer-archive-reasons-routes.js';
 import employerTeamRouter, { acceptRouter as employerInviteAcceptRouter } from './api/employer/employer-team-routes.js';
+import employerInterviewRouter from './api/employer/employer-interview-routes.js';
+import publicInterviewRouter from './api/public/public-interview-routes.js';
 import publicInviteRouter from './api/public/public-invite-routes.js';
 import resumeDownloadRouter from './api/public/resume-download-route.js';
 import dpdpRouter from './api/dpdp/dpdp-routes.js';
@@ -116,9 +121,11 @@ app.use('/api/employer/archive-reasons', requireEmployer, requireEmployerCompany
 // company yet, so it uses requireEmployer only — NOT requireEmployerCompany (D2/R6).
 app.use('/api/employer/team/invites/accept', requireEmployer, employerInviteAcceptRouter);
 app.use('/api/employer/team', requireEmployer, requireEmployerCompany, employerTeamRouter);
+app.use('/api/employer', requireEmployer, requireEmployerCompany, employerInterviewRouter);
 app.use('/api/dpdp', dpdpRouter); // per-route guards (D9) — /notice-version is public
 app.use('/api/public/resume-download', resumeDownloadRouter); // signed-token PDF stream (before the apply catch-all)
 app.use('/api/public/invites', publicInviteRouter); // unauthenticated invite preview (before the apply catch-all)
+app.use('/api/public', publicInterviewRouter); // unauthenticated interview booking (before the apply catch-all)
 app.use('/api/public', publicApplyRouter); // unauthenticated candidate apply pages
 
 // ─── 404 + central error handler (must be last) ───────────────────
@@ -151,6 +158,7 @@ const server = app.listen(PORT, async () => {
     await ensureResumeFileIndexes();
     await ensureResumeScoreIndexes();
     await ensureResumeParseJobIndexes();
+    await ensureInterviewIndexes();
     ensureResumeDirectory();
     ensureTmpDirectory();
 
@@ -165,6 +173,10 @@ const server = app.listen(PORT, async () => {
     // Persistent applicant-scoring queue (Q1): recover stuck jobs, spawn N slots.
     await ensureResumeScoreJobIndexes();
     await startScoreWorker();
+
+    // 24h interview reminders (same in-process pattern as the score worker).
+    await ensureInterviewReminderJobIndexes();
+    startInterviewReminderWorker();
 
     console.log(`[server] listening on http://localhost:${PORT}`);
 

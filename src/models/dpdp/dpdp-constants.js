@@ -34,6 +34,11 @@ export const AUDIT_EVENTS = Object.freeze({
   RIGHTS_REQUEST_STATUS_CHANGED: 'rights_request_status_changed',
   DATA_ACCESSED: 'data_accessed',
   DATA_DELETED: 'data_deleted',
+  // Interview scheduling is a distinct processing activity on candidate
+  // personal data (name, email, availability) and must leave an audit trail.
+  INTERVIEW_PROPOSED: 'interview_proposed',
+  INTERVIEW_RESCHEDULED: 'interview_rescheduled',
+  INTERVIEW_CANCELLED: 'interview_cancelled',
 });
 
 /** True when `value` is one of the frozen enum's values. */
