@@ -19,6 +19,7 @@ import {
   ensurePostingIndexes,
   ensureCompanyMemberIndexes,
   ensureCompanyInviteIndexes,
+  ensureAssignmentIndexes,
   ensureSavedViewIndexes,
 } from './models/employer/index.js';
 
@@ -62,6 +63,7 @@ import {
   ensureContactIndexes, ensureApplicationIndexes,
   ensureStageChangeIndexes, ensureResumeFileIndexes, ensureResumeScoreIndexes,
   ensureApplicantNoteIndexes,
+  ensureAssignmentSubmissionIndexes, ensureAssignmentReviewIndexes,
 } from './models/public/index.js';
 import { ensureResumeDirectory } from './services/public/resume-storage-service.js';
 import { ensureResumeParseJobIndexes } from './models/seeker/resume-parse-job-model.js';
@@ -148,6 +150,9 @@ const server = app.listen(PORT, async () => {
     await ensureApplicationIndexes();
     await ensureStageChangeIndexes();
     await ensureApplicantNoteIndexes();
+    await ensureAssignmentIndexes();
+    await ensureAssignmentSubmissionIndexes();
+    await ensureAssignmentReviewIndexes();
     await ensureResumeFileIndexes();
     await ensureResumeScoreIndexes();
     await ensureResumeParseJobIndexes();
