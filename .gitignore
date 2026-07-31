@@ -7,3 +7,6 @@ deploy.ps1
 data/resumes/
 # Short-lived temp PDFs for the async parse queue
 data/tmp/
+
+ktopjobsync-hubbackend
+*jobsync-hub*backend
