@@ -55,6 +55,11 @@ import employerArchiveReasonsRouter from './api/employer/employer-archive-reason
 import employerTeamRouter, { acceptRouter as employerInviteAcceptRouter } from './api/employer/employer-team-routes.js';
 import publicInviteRouter from './api/public/public-invite-routes.js';
 import resumeDownloadRouter from './api/public/resume-download-route.js';
+import assignmentStagingRouter from './api/public/assignment-staging-routes.js';
+import assignmentDownloadRouter from './api/public/assignment-download-route.js';
+import {
+  ensureAssignmentDirectories, sweepOldStagedFiles,
+} from './services/public/assignment-storage-service.js';
 import dpdpRouter from './api/dpdp/dpdp-routes.js';
 import seekerResumeRouter from './api/seeker/seeker-resume-routes.js';
 import seekerProfileRouter from './api/seeker/seeker-profile-routes.js';
@@ -123,6 +128,8 @@ app.use('/api/employer/team', requireEmployer, requireEmployerCompany, employerT
 app.use('/api/dpdp', dpdpRouter); // per-route guards (D9) — /notice-version is public
 app.use('/api/public/resume-download', resumeDownloadRouter); // signed-token PDF stream (before the apply catch-all)
 app.use('/api/public/invites', publicInviteRouter); // unauthenticated invite preview (before the apply catch-all)
+app.use('/api/public/assignment-files', assignmentStagingRouter); // staging upload (before the apply catch-all)
+app.use('/api/public/assignment-download', assignmentDownloadRouter); // signed-token file stream (before the apply catch-all)
 app.use('/api/public', publicApplyRouter); // unauthenticated candidate apply pages
 
 // ─── 404 + central error handler (must be last) ───────────────────
@@ -160,6 +167,13 @@ const server = app.listen(PORT, async () => {
     await ensureResumeParseJobIndexes();
     ensureResumeDirectory();
     ensureTmpDirectory();
+    ensureAssignmentDirectories();
+    const swept = sweepOldStagedFiles();
+    console.log(`[assignments] swept ${swept} stale staged files`);
+    // Staged uploads that were never submitted are reclaimed daily; a single boot
+    // sweep would leave a long-lived process accumulating them indefinitely.
+    setInterval(() => { try { sweepOldStagedFiles(); } catch { /* next tick retries */ } },
+      24 * 60 * 60 * 1000).unref();
 
     // Gemma is optional — the server boots fine without keys. initGemma() builds
     // both pools and logs their status itself, including the no-keys case (C10).
