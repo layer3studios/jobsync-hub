@@ -125,11 +125,27 @@ export function deleteSubmissionFile(relativePath) {
  * Delete staged files older than maxAgeMs. Returns the count removed. Only ever
  * touches the staging directory — committed submissions are never swept, they are
  * deleted explicitly through the data-deletion path.
+ *
+ * AGE ALONE IS NOT A SAFE ORPHAN TEST. A submission commits its row before the
+ * bytes are renamed out of staging, so an old staged file may be the only copy of a
+ * committed candidate's work — exactly the file we must never delete. `referenced`
+ * carries every staging path a live submission still points at, and those are
+ * skipped regardless of age.
+ *
+ * Passing `referenced: null` means "the caller could not determine what is
+ * referenced", and the sweep does nothing rather than guess. Deleting a real
+ * submission is unrecoverable; leaving stale bytes for one more day is not.
  */
-export function sweepOldStagedFiles(maxAgeMs = STAGING_TTL_MS, now = Date.now()) {
+export function sweepOldStagedFiles({ referenced = new Set(), maxAgeMs = STAGING_TTL_MS, now = Date.now() } = {}) {
+  if (referenced === null) {
+    console.warn('[assignments] sweep skipped — referenced staging paths are unknown');
+    return 0;
+  }
   ensureAssignmentDirectories();
   let removed = 0;
   for (const filename of fs.readdirSync(STAGING_DIR)) {
+    const relativePath = path.posix.join(STAGING_REL, filename);
+    if (referenced.has(relativePath)) continue; // committed work — never sweep, at any age
     const absolutePath = path.join(STAGING_DIR, filename);
     try {
       if (now - fs.statSync(absolutePath).mtimeMs > maxAgeMs) {

@@ -90,6 +90,9 @@ export async function insertAssignmentSubmission(data = {}, { session } = {}) {
 
   const now = new Date();
   const doc = {
+    // Honoured when supplied so the apply transaction can pre-generate both ids
+    // outside its callback — see createApplicationForCompany for why.
+    ...(data._id ? { _id: toOid(data._id) } : {}),
     applicationId: applicationOid,
     companyId: companyOid,
     jobId: jobOid,

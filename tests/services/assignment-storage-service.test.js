@@ -93,7 +93,7 @@ test('sweepOldStagedFiles removes files past the TTL and keeps newer ones', () =
   fs.utimesSync(oldAbsolute, eightDaysAgo, eightDaysAgo);
   fs.utimesSync(freshAbsolute, oneDayAgo, oneDayAgo);
 
-  const removed = sweepOldStagedFiles(STAGING_TTL_MS, now);
+  const removed = sweepOldStagedFiles({ maxAgeMs: STAGING_TTL_MS, now });
   assert.ok(removed >= 1, 'the 8-day-old file must be swept');
   assert.equal(fs.existsSync(oldAbsolute), false);
   assert.equal(fs.existsSync(freshAbsolute), true, 'a 1-day-old file is still within the 7-day TTL');
@@ -106,7 +106,7 @@ test('sweepOldStagedFiles never touches the submissions directory', () => {
   const longAgo = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000);
   fs.utimesSync(target, longAgo, longAgo);
 
-  sweepOldStagedFiles(STAGING_TTL_MS, Date.now());
+  sweepOldStagedFiles({ maxAgeMs: STAGING_TTL_MS, now: Date.now() });
   assert.ok(fs.existsSync(target), 'committed submissions are never swept');
 });
 

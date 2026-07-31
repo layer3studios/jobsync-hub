@@ -74,6 +74,23 @@ router.get('/jobs/:companySlug/:jobSlug', asyncHandler(async (req, res) => {
   res.json({ company: companySummary(company), job: toPublicPosting(posting) });
 }));
 
+/**
+ * multipart repeats a field name for each value, so `assignmentLinks` arrives as a
+ * string for one value and an array for several. The service validates every one of
+ * these — nothing here is trusted, this only normalizes the shape.
+ */
+function normalizeAssignmentFields(body) {
+  const toArray = (value) => {
+    if (value === undefined || value === null || value === '') return [];
+    return Array.isArray(value) ? value : [value];
+  };
+  return {
+    ...body,
+    assignmentLinks: toArray(body.assignmentLinks),
+    assignmentFileIds: toArray(body.assignmentFileIds),
+  };
+}
+
 // POST /jobs/:companySlug/:jobSlug/apply — submit an application.
 router.post('/jobs/:companySlug/:jobSlug/apply', perCompanyLimiter, perJobLimiter, asyncHandler(async (req, res) => {
   await runUpload(req, res);
@@ -81,7 +98,8 @@ router.post('/jobs/:companySlug/:jobSlug/apply', perCompanyLimiter, perJobLimite
     ? { buffer: req.file.buffer, originalFilename: req.file.originalname, mimeType: req.file.mimetype }
     : null;
   const meta = { applicantIp: req.ip, userAgent: req.get('user-agent') || null, referer: req.get('referer') || null };
-  const result = await processApplication(req.params.companySlug, req.params.jobSlug, req.body || {}, resume, meta);
+  const form = normalizeAssignmentFields(req.body || {});
+  const result = await processApplication(req.params.companySlug, req.params.jobSlug, form, resume, meta);
   res.json(result);
 }));
 

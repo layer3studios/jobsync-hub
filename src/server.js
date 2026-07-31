@@ -60,6 +60,9 @@ import assignmentDownloadRouter from './api/public/assignment-download-route.js'
 import {
   ensureAssignmentDirectories, sweepOldStagedFiles,
 } from './services/public/assignment-storage-service.js';
+import {
+  reconcileAssignmentFiles, collectReferencedStagingPaths,
+} from './services/public/assignment-file-reconciler.js';
 import dpdpRouter from './api/dpdp/dpdp-routes.js';
 import seekerResumeRouter from './api/seeker/seeker-resume-routes.js';
 import seekerProfileRouter from './api/seeker/seeker-profile-routes.js';
@@ -168,12 +171,21 @@ const server = app.listen(PORT, async () => {
     ensureResumeDirectory();
     ensureTmpDirectory();
     ensureAssignmentDirectories();
-    const swept = sweepOldStagedFiles();
+    // Recover files whose submission committed but whose rename never ran (crash
+    // between the two halves of that dual write).
+    const { promoted, missing } = await reconcileAssignmentFiles();
+    console.log(`[assignments] reconciled ${promoted} files, ${missing} missing`);
+    const swept = sweepOldStagedFiles({ referenced: await collectReferencedStagingPaths() });
     console.log(`[assignments] swept ${swept} stale staged files`);
     // Staged uploads that were never submitted are reclaimed daily; a single boot
-    // sweep would leave a long-lived process accumulating them indefinitely.
-    setInterval(() => { try { sweepOldStagedFiles(); } catch { /* next tick retries */ } },
-      24 * 60 * 60 * 1000).unref();
+    // sweep would leave a long-lived process accumulating them indefinitely. The
+    // referenced set is recomputed each time — a file committed since the last
+    // sweep must never be treated as an orphan just because it is old.
+    setInterval(() => {
+      collectReferencedStagingPaths()
+        .then((referenced) => sweepOldStagedFiles({ referenced }))
+        .catch((err) => console.warn('[assignments] sweep failed:', err.message));
+    }, 24 * 60 * 60 * 1000).unref();
 
     // Gemma is optional — the server boots fine without keys. initGemma() builds
     // both pools and logs their status itself, including the no-keys case (C10).
