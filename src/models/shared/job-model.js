@@ -173,6 +173,9 @@ export async function ensureJobIndexes() {
   await safeCreateIndex(jobs, { Status: 1, Company: 1 });
   await safeCreateIndex(jobs, { Status: 1, 'autoTags.roleCategory': 1 });
   await safeCreateIndex(jobs, { Status: 1, 'autoTags.experienceBand': 1 });
+  await safeCreateIndex(jobs, { Status: 1, 'autoTags.techStack': 1 });
+  await safeCreateIndex(jobs, { Status: 1, WorkplaceType: 1 });
+  await safeCreateIndex(jobs, { Status: 1, SalaryMin: 1, SalaryMax: 1 });
   await safeCreateIndex(jobs, { scrapedAt: 1 });
   await safeCreateIndex(jobs, { ATSPlatform: 1 });
   await safeCreateIndex(jobs, { sourceSite: 1, JobID: 1 });
