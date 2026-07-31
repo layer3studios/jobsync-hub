@@ -86,6 +86,22 @@ export const POSTHOG_PROJECT_ID = process.env.POSTHOG_PROJECT_ID || '';
 export const POSTHOG_PERSONAL_API_KEY = process.env.POSTHOG_PERSONAL_API_KEY || '';
 export const ANALYTICS_CACHE_TTL_MS = parseInt(process.env.ANALYTICS_CACHE_TTL_MS, 10) || 300000;
 
+// ─── Transactional email (Resend) ─────────────────────────────────
+// All optional at boot. An empty RESEND_API_KEY simply disables outbound email —
+// sendTransactionalEmail() returns { sent: false } instead of throwing, so the
+// server boots and every caller's flow survives without email configured.
+export const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+// Verified sender identity. Defaults are our real production identity, so a
+// missing var can never produce a malformed or unverified From header.
+export const EMAIL_FROM_ADDRESS = process.env.EMAIL_FROM_ADDRESS || 'hello@jobmesh.in';
+export const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'JobMesh';
+// Empty means "omit replyTo entirely" — replies then go to the From address,
+// which is always a safe default.
+export const EMAIL_REPLY_TO_ADDRESS = process.env.EMAIL_REPLY_TO_ADDRESS || '';
+// Master switch, same contract as SYNC_ENABLED: anything other than the literal
+// 'false' keeps email on, so an unset var never silently disables sending.
+export const EMAIL_ENABLED = process.env.EMAIL_ENABLED !== 'false';
+
 // SMTP config is optional — only used if EMAIL_USER + EMAIL_PASS are set.
 export const EMAIL_CONFIG = process.env.EMAIL_USER && process.env.EMAIL_PASS
   ? {

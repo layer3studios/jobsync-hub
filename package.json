@@ -11,7 +11,8 @@
     "match": "node src/tasks/runMatcher.js",
     "migrate:auto-tags": "node scripts/migrate-auto-tags.js",
     "migrate:clean-descriptions": "node scripts/migrate-clean-descriptions.js",
-    "test:backend": "node --test --test-concurrency=1 \"tests/**/*.test.js\""
+    "test:backend": "node --test --test-concurrency=1 \"tests/**/*.test.js\"",
+    "test": "npm run test:backend"
   },
   "keywords": [],
   "author": "",
@@ -42,7 +43,8 @@
     "node-cron": "^4.2.1",
     "node-fetch": "^2.7.0",
     "pdf-parse": "^2.4.5",
-    "playwright": "^1.55.0"
+    "playwright": "^1.55.0",
+    "resend": "^6.18.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.10",
