@@ -31,6 +31,15 @@ export async function ensurePostingIndexes() {
     { companyId: 1, source: 1, status: 1 },
     { partialFilterExpression: { source: NATIVE }, name: 'jobs_companyId_source_status_native' },
   );
+  // "Which native postings use this assignment." The $type clause keeps the explicit
+  // nulls out of the index; a query must repeat source:'native' to use it.
+  await collection.createIndex(
+    { assignmentId: 1 },
+    {
+      partialFilterExpression: { source: NATIVE, assignmentId: { $type: 'objectId' } },
+      name: 'jobs_assignmentId_native',
+    },
+  );
 }
 
 /** True when a native posting already owns this slug within the company. */
@@ -94,6 +103,7 @@ export async function createPostingForCompany(companyId, input, createdByEmploye
       salaryMax: input.salaryMax ?? null,
       salaryCurrency: 'INR',
       status,
+      assignmentId: null,
       postedAt: status === 'active' ? now : null,
       createdAt: now,
       updatedAt: now,
@@ -192,6 +202,7 @@ export function toPublicPosting(doc) {
     salaryMax: doc.salaryMax ?? null,
     salaryCurrency: doc.salaryCurrency,
     status: doc.status,
+    assignmentId: doc.assignmentId?.toString() ?? null,
     postedAt: doc.postedAt ?? null,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
