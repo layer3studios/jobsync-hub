@@ -19,6 +19,7 @@ import {
   ensurePostingIndexes,
   ensureCompanyMemberIndexes,
   ensureCompanyInviteIndexes,
+  ensureSavedViewIndexes,
 } from './models/employer/index.js';
 
 import {
@@ -46,6 +47,7 @@ import { createEmployerAuthRouter } from './api/employer/employer-auth-routes.js
 import employerCompanyRouter from './api/employer/employer-company-routes.js';
 import employerPostingsRouter from './api/employer/employer-postings-routes.js';
 import employerApplicantRouter from './api/employer/employer-applicant-routes.js';
+import employerSavedViewsRouter from './api/employer/employer-saved-views-routes.js';
 import employerStagesRouter from './api/employer/employer-stages-routes.js';
 import employerArchiveReasonsRouter from './api/employer/employer-archive-reasons-routes.js';
 import employerTeamRouter, { acceptRouter as employerInviteAcceptRouter } from './api/employer/employer-team-routes.js';
@@ -106,6 +108,7 @@ app.use('/api/seeker/market', requireSeeker, seekerMarketRouter);
 app.use('/api/employer/auth', createEmployerAuthRouter());
 app.use('/api/employer/company', requireEmployer, employerCompanyRouter);
 app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerPostingsRouter);
+app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerSavedViewsRouter);
 app.use('/api/employer/applicants', requireEmployer, requireEmployerCompany, employerApplicantRouter);
 app.use('/api/employer/stages', requireEmployer, requireEmployerCompany, employerStagesRouter);
 app.use('/api/employer/archive-reasons', requireEmployer, requireEmployerCompany, employerArchiveReasonsRouter);
@@ -137,6 +140,7 @@ const server = app.listen(PORT, async () => {
     await ensurePostingIndexes();
     await ensureCompanyMemberIndexes();
     await ensureCompanyInviteIndexes();
+    await ensureSavedViewIndexes();
     await ensureConsentIndexes();
     await ensureAuditLogIndexes();
     await ensureRightsRequestIndexes();
