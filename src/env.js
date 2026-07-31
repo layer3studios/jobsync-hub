@@ -32,6 +32,15 @@ export const RESUME_URL_SECRET = process.env.RESUME_URL_SECRET
   || process.env.EMPLOYER_JWT_SECRET
   || 'dev-resume-secret';
 
+// Secret for signing assignment file tokens — staging fileIds AND employer download
+// URLs (HMAC-SHA256). Deliberately SEPARATE from RESUME_URL_SECRET: rotating one
+// must not invalidate the other, and a leak of either must not grant the other's
+// files. Production MUST set this explicitly; the EMPLOYER_JWT_SECRET fallback is a
+// dev convenience only, and the last literal keeps tests/boot working with neither.
+export const ASSIGNMENT_URL_SECRET = process.env.ASSIGNMENT_URL_SECRET
+  || process.env.EMPLOYER_JWT_SECRET
+  || 'dev-assignment-secret';
+
 export const NODE_ENV = process.env.NODE_ENV || 'development';
 export const IS_PRODUCTION = NODE_ENV === 'production';
 export const PORT = parseInt(process.env.PORT, 10) || 3000;
