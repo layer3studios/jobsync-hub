@@ -20,6 +20,104 @@ export async function ensureApplicationIndexes() {
   await collection.createIndex({ companyId: 1, jobId: 1 }, { name: 'applications_companyId_jobId' });
   await collection.createIndex({ contactId: 1 }, { name: 'applications_contactId' });
   await collection.createIndex({ stageId: 1 }, { name: 'applications_stageId' });
+  await collection.createIndex({ companyId: 1, jobId: 1, appliedAt: -1 }, { name: 'applications_companyId_jobId_appliedAt' });
+}
+
+/** Experience buckets applied at query time on application.yearsExperience.
+ *  Half-open ranges [min, max); staff has no upper bound. */
+export const EXPERIENCE_BUCKETS = {
+  fresher: { min: 0, max: 1 },
+  junior: { min: 1, max: 3 },
+  mid: { min: 3, max: 6 },
+  senior: { min: 6, max: 10 },
+  staff: { min: 10, max: null },
+};
+
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Advanced filtered list for the employer applicant list. Filtering happens in
+ * Mongo via an aggregation; lookups are added only when the corresponding
+ * filter is active. Returns raw application docs (lookup fields stripped),
+ * sorted appliedAt desc — the controller merges contacts/scores as before.
+ *
+ * filters: { stageId, archived, experienceBuckets[], skills[] (AND),
+ *            locations[] (OR), appliedWithin ('24h'|'7d'|'30d'),
+ *            hasResume, hasNotes }
+ */
+export async function listApplicationsForJobFiltered(companyId, jobId, filters = {}) {
+  const companyOid = toOid(companyId);
+  const jobOid = toOid(jobId);
+  if (!companyOid || !jobOid) return [];
+
+  const match = { companyId: companyOid, jobId: jobOid };
+  if (filters.stageId) match.stageId = toOid(filters.stageId);
+  if (filters.archived === null || filters.archived === false) match.archived = null;
+
+  if (Array.isArray(filters.experienceBuckets) && filters.experienceBuckets.length > 0) {
+    const or = filters.experienceBuckets
+      .map((name) => EXPERIENCE_BUCKETS[name])
+      .filter(Boolean)
+      .map(({ min, max }) => max === null
+        ? { yearsExperience: { $gte: min } }
+        : { yearsExperience: { $gte: min, $lt: max } });
+    if (or.length > 0) match.$or = or;
+  }
+
+  if (filters.appliedWithin) {
+    const days = { '24h': 1, '7d': 7, '30d': 30 }[filters.appliedWithin];
+    if (days) match.appliedAt = { $gte: new Date(Date.now() - days * 86400000) };
+  }
+
+  if (filters.hasResume) match.resumeFileId = { $ne: null };
+
+  const pipeline = [{ $match: match }];
+
+  // Skills: AND across selected tags, matched case-insensitively against the
+  // AI score's matchedSkills + bonusSkills for this application.
+  const skills = (filters.skills ?? []).map((s) => String(s).trim().toLowerCase()).filter(Boolean);
+  if (skills.length > 0) {
+    pipeline.push(
+      { $lookup: { from: 'resume_scores', localField: '_id', foreignField: 'applicationId', as: 'scoreDoc' } },
+      { $addFields: {
+        skillPool: { $map: {
+          input: { $concatArrays: [
+            { $ifNull: [{ $first: '$scoreDoc.matchedSkills' }, []] },
+            { $ifNull: [{ $first: '$scoreDoc.bonusSkills' }, []] },
+          ] },
+          as: 'skill',
+          in: { $toLower: '$$skill' },
+        } },
+      } },
+      { $match: { $expr: { $setIsSubset: [skills, '$skillPool'] } } },
+    );
+  }
+
+  // Locations: OR across cities, matched against the contact's free-text location.
+  const locations = (filters.locations ?? []).map((c) => String(c).trim()).filter(Boolean);
+  if (locations.length > 0) {
+    pipeline.push(
+      { $lookup: { from: 'contacts', localField: 'contactId', foreignField: '_id', as: 'contactDoc' } },
+      { $match: { $or: locations.map((city) => ({
+        'contactDoc.location': { $regex: `\\b${escapeRegex(city)}\\b`, $options: 'i' },
+      })) } },
+    );
+  }
+
+  if (filters.hasNotes) {
+    pipeline.push(
+      { $lookup: { from: 'applicant_notes', localField: '_id', foreignField: 'applicationId', as: 'noteDoc' } },
+      { $match: { 'noteDoc.0': { $exists: true } } },
+    );
+  }
+
+  pipeline.push(
+    { $sort: { appliedAt: -1 } },
+    { $project: { scoreDoc: 0, skillPool: 0, contactDoc: 0, noteDoc: 0 } },
+  );
+
+  const collection = await applicationsCol();
+  return collection.aggregate(pipeline).toArray();
 }
 
 /** Insert an application for a company. Stamps appliedAt + timestamps. */

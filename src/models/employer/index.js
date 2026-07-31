@@ -9,3 +9,4 @@ export * from './posting-slug-helpers.js';
 export * from './posting-model.js';
 export * from './company-member-model.js';
 export * from './company-invite-model.js';
+export * from './saved-view-model.js';

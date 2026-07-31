@@ -20,7 +20,7 @@ import {
   validateWorkplaceType, validateEmploymentType, validateSalary, validatePostingStatus,
 } from '../../services/employer/posting-validators.js';
 import { extractAndStoreRequirements } from '../../gemma/background-extractor.js';
-import { listApplicantsForPosting } from './employer-applicants-controller.js';
+import { listApplicantsForPosting, listApplicantFacetsForPosting } from './employer-applicants-controller.js';
 
 /**
  * Fire-and-forget JD extraction; never blocks or fails the HTTP response (D6/D8).
@@ -118,6 +118,9 @@ router.patch('/:postingId', requireMemberOrHigher, requireEmployerPosting, async
 
 // GET /api/employer/jobs/:postingId/applicants — applications + contact + score.
 router.get('/:postingId/applicants', requireInterviewerOrHigher, requireEmployerPosting, asyncHandler(listApplicantsForPosting));
+
+// GET /api/employer/jobs/:postingId/applicants/facets — filter options (skills, cities) for this posting.
+router.get('/:postingId/applicants/facets', requireInterviewerOrHigher, requireEmployerPosting, asyncHandler(listApplicantFacetsForPosting));
 
 // POST /api/employer/jobs/:postingId/close — status → 'closed'.
 router.post('/:postingId/close', requireMemberOrHigher, requireEmployerPosting, asyncHandler(async (req, res) => {
