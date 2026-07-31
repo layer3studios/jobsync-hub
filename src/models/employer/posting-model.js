@@ -179,6 +179,28 @@ export async function updatePostingForCompany(companyId, postingId, patch) {
   );
 }
 
+/**
+ * Attach or detach the take-home assignment on one native posting. Deliberately
+ * NOT routed through updatePostingForCompany: that helper carries postedAt
+ * stamping tied to status transitions, and attaching an assignment has nothing to
+ * do with status. toOid(null) is null, so detach needs no separate branch.
+ *
+ * Filters on source:'native' like every other read here, so a scraped ATS job
+ * (shared `jobs` collection, PascalCase, no companyId) can never be mutated.
+ * Returns the updated doc, or null on a cross-tenant / scraped / missing id.
+ */
+export async function setPostingAssignmentForCompany(companyId, postingId, assignmentId, { session } = {}) {
+  const companyOid = toOid(companyId);
+  const postingOid = toOid(postingId);
+  if (!companyOid || !postingOid) return null;
+  const collection = await postingsCol();
+  return collection.findOneAndUpdate(
+    { _id: postingOid, source: NATIVE, companyId: companyOid },
+    { $set: { assignmentId: toOid(assignmentId), updatedAt: new Date() } },
+    { returnDocument: 'after', session },
+  );
+}
+
 export function closePostingForCompany(companyId, postingId) {
   return updatePostingForCompany(companyId, postingId, { status: 'closed' });
 }

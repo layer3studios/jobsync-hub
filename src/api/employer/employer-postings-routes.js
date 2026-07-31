@@ -21,6 +21,7 @@ import {
 } from '../../services/employer/posting-validators.js';
 import { extractAndStoreRequirements } from '../../gemma/background-extractor.js';
 import { listApplicantsForPosting, listApplicantFacetsForPosting } from './employer-applicants-controller.js';
+import { getPostingAssignment, patchPostingAssignment } from './posting-assignment-handlers.js';
 
 /**
  * Fire-and-forget JD extraction; never blocks or fails the HTTP response (D6/D8).
@@ -121,6 +122,12 @@ router.get('/:postingId/applicants', requireInterviewerOrHigher, requireEmployer
 
 // GET /api/employer/jobs/:postingId/applicants/facets — filter options (skills, cities) for this posting.
 router.get('/:postingId/applicants/facets', requireInterviewerOrHigher, requireEmployerPosting, asyncHandler(listApplicantFacetsForPosting));
+
+// GET /api/employer/jobs/:postingId/assignment — attached assignment + applicant count.
+router.get('/:postingId/assignment', requireInterviewerOrHigher, requireEmployerPosting, asyncHandler(getPostingAssignment));
+
+// PATCH /api/employer/jobs/:postingId/assignment — attach, swap, or detach (null).
+router.patch('/:postingId/assignment', requireMemberOrHigher, requireEmployerPosting, asyncHandler(patchPostingAssignment));
 
 // POST /api/employer/jobs/:postingId/close — status → 'closed'.
 router.post('/:postingId/close', requireMemberOrHigher, requireEmployerPosting, asyncHandler(async (req, res) => {
