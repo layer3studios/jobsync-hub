@@ -150,6 +150,18 @@ export async function getActivePostingBySlugForCompany(companyId, slug) {
   return collection.findOne({ companyId: companyOid, slug, source: NATIVE, status: 'active' });
 }
 
+/**
+ * Fetch a native posting by slug within a company at ANY status. Exists so the
+ * apply path can tell "this role closed while you were working on it" apart from
+ * "this slug never existed" — the active-only lookup collapses both into a 404.
+ */
+export async function getPostingBySlugForCompany(companyId, slug) {
+  const companyOid = toOid(companyId);
+  if (!companyOid || typeof slug !== 'string' || !slug) return null;
+  const collection = await postingsCol();
+  return collection.findOne({ companyId: companyOid, slug, source: NATIVE });
+}
+
 /** List a company's ACTIVE native postings for the public company page. */
 export async function listActivePostingsForCompany(companyId) {
   const companyOid = toOid(companyId);
