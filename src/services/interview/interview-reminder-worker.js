@@ -14,6 +14,7 @@ import { getInterviewForCompany as defaultGetInterview } from '../../models/inte
 import { INTERVIEW_STATUSES } from '../../models/interview/interview-constants.js';
 import { buildInterviewEmailContext as defaultBuildContext } from './interview-context-helpers.js';
 import { sendInterviewReminderEmail as defaultSendReminder } from './interview-notification-service.js';
+import { checkPoolLevelsAndNotify } from './pool-monitor-service.js';
 
 const SWEEP_INTERVAL_MILLISECONDS = 5 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
@@ -84,6 +85,8 @@ async function runSweepLoop() {
   while (!isStopped) {
     try {
       await processDueReminderJobs(new Date());
+      // Pool-low watchdog rides the same sweep; it never throws.
+      await checkPoolLevelsAndNotify(new Date());
     } catch (err) {
       console.log(`[reminder-queue] sweep error (${err?.message || err}) — next sweep in ${SWEEP_INTERVAL_MILLISECONDS}ms`);
     }

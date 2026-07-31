@@ -22,10 +22,18 @@ export function buildInterviewInvitationEmail({
   const bodyBlocks = [
     `Hi ${candidateName},`,
     `${companyName} would like to schedule a ${durationMinutes}-minute ${modeLabel} with you for the ${postingTitle} position.`,
-    'Pick whichever of these times works best for you:',
-    ...proposedSlots.map((slot, index) =>
-      `Option ${index + 1}: ${formatSlotLine(slot.startAtUtc, slot.durationMinutes, timezoneId)}`),
   ];
+  if (proposedSlots.length > 0) {
+    bodyBlocks.push(
+      'Pick whichever of these times works best for you:',
+      ...proposedSlots.map((slot, index) =>
+        `Option ${index + 1}: ${formatSlotLine(slot.startAtUtc, slot.durationMinutes, timezoneId)}`),
+    );
+  } else {
+    // Pool invitation: the candidate picks from live availability on the
+    // booking page, so no specific times are listed here.
+    bodyBlocks.push('Choose a time that works for you from the available options on the booking page.');
+  }
   if (mode === INTERVIEW_MODES.IN_PERSON && locationText) {
     bodyBlocks.push(`Location: ${locationText}`);
   }

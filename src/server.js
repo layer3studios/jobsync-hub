@@ -30,7 +30,8 @@ import {
 
 import { ensureAdminUserIndexes } from './models/admin/index.js';
 
-import { ensureInterviewIndexes, ensureInterviewReminderJobIndexes } from './models/interview/index.js';
+import { ensureInterviewIndexes, ensureInterviewReminderJobIndexes, ensureInterviewTimeIndexes } from './models/interview/index.js';
+import employerInterviewTimesRouter from './api/employer/employer-interview-times-routes.js';
 import { startInterviewReminderWorker } from './services/interview/interview-reminder-worker.js';
 
 import { initGemma } from './gemma/index.js';
@@ -122,6 +123,7 @@ app.use('/api/employer/archive-reasons', requireEmployer, requireEmployerCompany
 app.use('/api/employer/team/invites/accept', requireEmployer, employerInviteAcceptRouter);
 app.use('/api/employer/team', requireEmployer, requireEmployerCompany, employerTeamRouter);
 app.use('/api/employer', requireEmployer, requireEmployerCompany, employerInterviewRouter);
+app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerInterviewTimesRouter);
 app.use('/api/dpdp', dpdpRouter); // per-route guards (D9) — /notice-version is public
 app.use('/api/public/resume-download', resumeDownloadRouter); // signed-token PDF stream (before the apply catch-all)
 app.use('/api/public/invites', publicInviteRouter); // unauthenticated invite preview (before the apply catch-all)
@@ -159,6 +161,7 @@ const server = app.listen(PORT, async () => {
     await ensureResumeScoreIndexes();
     await ensureResumeParseJobIndexes();
     await ensureInterviewIndexes();
+    await ensureInterviewTimeIndexes();
     ensureResumeDirectory();
     ensureTmpDirectory();
 

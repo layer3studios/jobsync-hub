@@ -2,12 +2,14 @@
 // Unauthenticated candidate path — the 256-bit booking token is the credential.
 // The model's bookInterviewSlot is the atomic double-booking guard; this layer
 // never re-implements it. All related records are loaded using the interview's
-// OWN companyId, never a caller-supplied value.
+// OWN companyId, never a caller-supplied value. Pool bookings (source 'pool')
+// live in interview-pool-booking-service.js and share runPostBookingSideEffects.
 
 import { bookInterviewSlot as defaultBookSlot } from '../../models/interview/interview-booking-model.js';
 import { findInterviewByBookingToken as defaultFindByToken } from '../../models/interview/interview-model.js';
 import { toCandidateInterview } from '../../models/interview/interview-projection-helpers.js';
 import { INTERVIEW_STATUSES } from '../../models/interview/interview-constants.js';
+import { listAvailableTimesForPublicBooking as defaultListPoolTimes } from '../../models/interview/interview-time-booking-model.js';
 import { getCompanyById as defaultGetCompanyById } from '../../models/employer/company-model.js';
 import { getPostingForCompany as defaultGetPostingForCompany } from '../../models/employer/posting-model.js';
 import { scheduleInterviewReminders as defaultScheduleReminders } from '../../models/interview/interview-reminder-job-model.js';
@@ -15,58 +17,65 @@ import { buildInterviewEmailContext as defaultBuildContext } from './interview-c
 import { sendInterviewConfirmationEmails as defaultSendConfirmations } from './interview-notification-service.js';
 import { advanceApplicationToInterviewStage as defaultAdvanceStage } from './interview-stage-advance-service.js';
 
+export const INTERVIEW_SOURCE_POOL = 'pool';
+
 /**
- * Book a slot by token. Returns the model's result shape unchanged on failure
- * so the route can map codes to statuses; on success fires the confirmation
- * emails best-effort and returns { booked: true, interview }.
+ * Everything that follows a successful booking, identical for both flows:
+ * stage auto-advance, 24h reminders, confirmation emails + .ics. Each is
+ * best-effort — the booking already happened and stands either way. companyId
+ * comes from the booked interview itself, never the caller.
  */
-export async function bookInterviewByToken(token, slotIndex, deps = {}) {
+export async function runPostBookingSideEffects(interview, deps = {}) {
   const {
-    bookSlot = defaultBookSlot,
     buildContext = defaultBuildContext,
     sendConfirmationEmails = defaultSendConfirmations,
     advanceStage = defaultAdvanceStage,
     scheduleReminders = defaultScheduleReminders,
   } = deps;
-
-  const result = await bookSlot(token, slotIndex);
-  if (!result.booked) return result;
-
-  // Best-effort side effects — the booking already happened and stands either
-  // way. companyId comes from the booked interview itself, never the caller.
   try {
-    await advanceStage(result.interview.companyId, result.interview.applicationId, deps);
+    await advanceStage(interview.companyId, interview.applicationId, deps);
   } catch (err) {
     console.warn(`[interview] stage auto-advance failed: ${err.message}`);
   }
   try {
-    await scheduleReminders(result.interview);
+    await scheduleReminders(interview);
   } catch (err) {
     console.warn(`[interview] reminder scheduling failed: ${err.message}`);
   }
-
   try {
-    const context = await buildContext(result.interview, deps);
+    const context = await buildContext(interview, deps);
     if (context) await sendConfirmationEmails(context, deps);
     else console.warn('[interview] booking confirmed but related records missing — no emails sent');
   } catch (err) {
-    // A failed email must never fail (or roll back) the booking.
     console.warn(`[interview] confirmation emails failed: ${err.message}`);
   }
+}
+
+/**
+ * Per-candidate (manual-slot) booking. Returns the model's result shape
+ * unchanged on failure; on success runs the shared side effects and returns
+ * { booked: true, interview }.
+ */
+export async function bookInterviewByToken(token, slotIndex, deps = {}) {
+  const { bookSlot = defaultBookSlot } = deps;
+  const result = await bookSlot(token, slotIndex);
+  if (!result.booked) return result;
+  await runPostBookingSideEffects(result.interview, deps);
   return { booked: true, interview: result.interview };
 }
 
 /**
  * Data for the public booking page. Returns null for an unknown token and
- * { expired: true } for an expired one. Exposes toCandidateInterview plus
- * companyName, postingTitle and companyLogoUrl ONLY — no companyId,
- * applicationId, contactId, calendarUid, or any employer email.
+ * { expired: true, companyName } for an expired one. Pool interviews
+ * additionally carry a live `times` array (id/startAtUtc/durationMinutes/
+ * timezoneId only); per-candidate interviews expose proposedSlots as before.
  */
 export async function getBookingPageDataByToken(token, deps = {}) {
   const {
     findByToken = defaultFindByToken,
     getCompanyById = defaultGetCompanyById,
     getPostingForCompany = defaultGetPostingForCompany,
+    listPoolTimes = defaultListPoolTimes,
   } = deps;
 
   const interview = await findByToken(token);
@@ -83,10 +92,14 @@ export async function getBookingPageDataByToken(token, deps = {}) {
     getPostingForCompany(interview.companyId, interview.postingId),
   ]);
 
-  return {
+  const pageData = {
     ...toCandidateInterview(interview),
     companyName: company?.name ?? null,
     postingTitle: posting?.title ?? null,
     companyLogoUrl: company?.logoUrl ?? null,
   };
+  if (interview.source === INTERVIEW_SOURCE_POOL && interview.status === INTERVIEW_STATUSES.PROPOSED) {
+    pageData.times = await listPoolTimes(interview.postingId);
+  }
+  return pageData;
 }

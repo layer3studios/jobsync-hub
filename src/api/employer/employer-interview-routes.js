@@ -15,6 +15,7 @@ import {
   proposeInterviewForCompany, rescheduleInterviewForCompany,
 } from '../../services/interview/interview-scheduling-service.js';
 import { cancelInterviewForCompanyWithNotice } from '../../services/interview/interview-cancel-service.js';
+import { sendPoolSchedulingLink } from '../../services/interview/pool-scheduling-service.js';
 import {
   listInterviewsForApplication, toPublicInterview, INTERVIEW_ERROR_CODES,
 } from '../../models/interview/index.js';
@@ -46,6 +47,15 @@ router.post('/applicants/:applicationId/interviews', requireMemberOrHigher, asyn
       timezoneId: body.timezoneId,
     },
     req.employerUser.employerUserId,
+  );
+  res.status(201).json({ data: toPublicInterview(interview) });
+}));
+
+// POST /api/employer/applicants/:applicationId/send-scheduling-link — one-click
+// pool invite; everything comes from the posting's defaults + pool.
+router.post('/applicants/:applicationId/send-scheduling-link', requireMemberOrHigher, asyncHandler(async (req, res) => {
+  const interview = await sendPoolSchedulingLink(
+    req.employerCompanyId, req.params.applicationId, req.employerUser.employerUserId,
   );
   res.status(201).json({ data: toPublicInterview(interview) });
 }));

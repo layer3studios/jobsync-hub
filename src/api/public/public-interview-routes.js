@@ -12,9 +12,8 @@
 import { Router } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { asyncHandler } from '../../middleware/async-handler-middleware.js';
-import {
-  bookInterviewByToken, getBookingPageDataByToken,
-} from '../../services/interview/interview-booking-service.js';
+import { getBookingPageDataByToken } from '../../services/interview/interview-booking-service.js';
+import { bookInterviewRequest } from '../../services/interview/interview-pool-booking-service.js';
 import { toCandidateInterview, INTERVIEW_ERROR_CODES } from '../../models/interview/index.js';
 
 const router = Router();
@@ -37,6 +36,12 @@ const BOOKING_ERROR_STATUS = {
   [INTERVIEW_ERROR_CODES.INTERVIEW_NOT_PROPOSED]: 409,
   [INTERVIEW_ERROR_CODES.INVALID_SLOT]: 400,
   [INTERVIEW_ERROR_CODES.SLOT_TOO_SOON]: 400,
+  // Pool bookings
+  [INTERVIEW_ERROR_CODES.TIME_NOT_FOUND]: 404,
+  [INTERVIEW_ERROR_CODES.TIME_ALREADY_BOOKED]: 409,
+  [INTERVIEW_ERROR_CODES.TIME_TOO_SOON]: 400,
+  [INTERVIEW_ERROR_CODES.POOL_REQUIRES_TIME_ID]: 400,
+  [INTERVIEW_ERROR_CODES.MANUAL_REQUIRES_SLOT_INDEX]: 400,
 };
 
 // GET /api/public/interviews/:bookingToken — data for the booking page.
@@ -59,10 +64,12 @@ router.get('/interviews/:bookingToken', bookingPageLimiter, asyncHandler(async (
   res.json({ data: pageData });
 }));
 
-// POST /api/public/interviews/:bookingToken/book — { slotIndex }.
+// POST /api/public/interviews/:bookingToken/book — { slotIndex } for
+// per-candidate interviews, { timeId } for pool interviews. The service
+// branches on the interview's source and rejects a mismatched body.
 router.post('/interviews/:bookingToken/book', bookActionLimiter, asyncHandler(async (req, res) => {
-  const slotIndex = Number(req.body?.slotIndex);
-  const result = await bookInterviewByToken(req.params.bookingToken, slotIndex);
+  const { slotIndex, timeId } = req.body || {};
+  const result = await bookInterviewRequest(req.params.bookingToken, { slotIndex, timeId });
   if (!result.booked) {
     const status = BOOKING_ERROR_STATUS[result.code] ?? 400;
     return res.status(status).json({ error: { code: result.code, message: 'This slot could not be booked.' } });

@@ -5,4 +5,6 @@ export * from './interview-model.js';
 export * from './interview-booking-model.js';
 export * from './interview-projection-helpers.js';
 export * from './interview-reminder-job-model.js';
+export * from './interview-time-model.js';
+export * from './interview-time-booking-model.js';
 export * from './interview-validators.js';
