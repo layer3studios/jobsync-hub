@@ -56,6 +56,7 @@ import employerStagesRouter from './api/employer/employer-stages-routes.js';
 import employerArchiveReasonsRouter from './api/employer/employer-archive-reasons-routes.js';
 import employerTeamRouter, { acceptRouter as employerInviteAcceptRouter } from './api/employer/employer-team-routes.js';
 import employerInterviewRouter from './api/employer/employer-interview-routes.js';
+import employerDashboardRouter from './api/employer/employer-dashboard-routes.js';
 import publicInterviewRouter from './api/public/public-interview-routes.js';
 import publicInviteRouter from './api/public/public-invite-routes.js';
 import resumeDownloadRouter from './api/public/resume-download-route.js';
@@ -122,6 +123,7 @@ app.use('/api/employer/archive-reasons', requireEmployer, requireEmployerCompany
 // company yet, so it uses requireEmployer only — NOT requireEmployerCompany (D2/R6).
 app.use('/api/employer/team/invites/accept', requireEmployer, employerInviteAcceptRouter);
 app.use('/api/employer/team', requireEmployer, requireEmployerCompany, employerTeamRouter);
+app.use('/api/employer/dashboard', requireEmployer, requireEmployerCompany, employerDashboardRouter);
 app.use('/api/employer', requireEmployer, requireEmployerCompany, employerInterviewRouter);
 app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerInterviewTimesRouter);
 app.use('/api/dpdp', dpdpRouter); // per-route guards (D9) — /notice-version is public
