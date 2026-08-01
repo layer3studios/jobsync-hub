@@ -41,15 +41,23 @@ export class GemmaClient {
     return last ? last.text : '';
   }
 
+  /**
+   * opts.model / opts.apiKey let a caller (the ModelCascade) drive the exact
+   * model+key for this one call. When apiKey is given the cascade owns the
+   * retry/rotation policy, so this method makes a SINGLE attempt and lets the
+   * error propagate — retrying here would double-spend the cascade's budget.
+   */
   async generateContent(systemInstruction, userMessage, opts = {}) {
-    const maxRetries = opts.maxRetries ?? 3;
+    const model = opts.model || this.model;
+    const pinnedKey = opts.apiKey || null;
+    const maxRetries = pinnedKey ? 0 : (opts.maxRetries ?? 3);
     const body = this.buildBody(systemInstruction, userMessage, opts);
 
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      const key = this.keyManager.getNextKey();
+      const key = pinnedKey || this.keyManager.getNextKey();
       if (!key) throw new GemmaApiError(0, 'No live Gemma API keys');
 
-      const url = `${this.baseUrl}/models/${this.model}:generateContent?key=${key}`;
+      const url = `${this.baseUrl}/models/${model}:generateContent?key=${key}`;
       const response = await this.fetchFn(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -59,6 +67,8 @@ export class GemmaClient {
       if (response.ok) return GemmaClient.readText(await response.json());
 
       const text = await response.text().catch(() => '');
+      // Pinned-key mode: surface everything so the cascade can classify it.
+      if (pinnedKey) throw new GemmaApiError(response.status, text, response.status >= 500);
       if (response.status === 429) {
         await sleep(2 ** attempt * 1000 + Math.floor(Math.random() * 250));
         continue; // rotate to the next key and retry

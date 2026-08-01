@@ -5,7 +5,8 @@
 // breaks the loop or the scraper. Dependencies are injectable for tests.
 
 import { extractAndStoreRequirements as defaultExtract } from '../gemma/background-extractor.js';
-import { getScraperGemmaClient as defaultGetGemmaClient } from '../gemma/gemma-runtime.js';
+import { getScraperAiClient as defaultGetGemmaClient } from '../gemma/gemma-runtime.js';
+import { SCRAPER_JD_EXTRACTION_ENABLED } from '../env.js';
 
 /**
  * Extract requirements for each new job when Gemma is configured. No-op otherwise.
@@ -19,6 +20,7 @@ export async function runExtractionForNewJobs(siteName, newJobs, deps = {}) {
     extractAndStoreRequirements = defaultExtract,
   } = deps;
 
+  if (!SCRAPER_JD_EXTRACTION_ENABLED) return;
   if (!Array.isArray(newJobs) || newJobs.length === 0) return;
   const client = getGemmaClient();
   if (!client) return;

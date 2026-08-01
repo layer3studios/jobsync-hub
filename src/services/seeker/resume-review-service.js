@@ -7,7 +7,8 @@
 // profileUpdatedAt past profileReviewedAt, letting F3c flag a stale review.
 
 import { HttpError } from '../../middleware/error-handler-middleware.js';
-import { getScoringGemmaClient as getGemmaClient } from '../../gemma/gemma-runtime.js';
+import { getSeekerAiClient as getGemmaClient } from '../../gemma/gemma-runtime.js';
+import { SEEKER_AI_ENABLED } from '../../env.js';
 import { reviewParsedProfile } from '../../gemma/review-resume.js';
 import {
   getProfileForUser, getReviewForUser, upsertReviewForUser,
@@ -19,7 +20,7 @@ export async function runResumeReviewForUser(userId) {
   if (!parsedProfile) {
     throw new HttpError(400, 'Upload a resume before requesting a review.', 'NO_PROFILE');
   }
-  const client = getGemmaClient();
+  const client = SEEKER_AI_ENABLED ? getGemmaClient() : null;
   if (!client) {
     throw new HttpError(503, 'Resume review is temporarily unavailable.', 'GEMMA_UNAVAILABLE');
   }

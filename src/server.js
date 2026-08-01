@@ -46,6 +46,8 @@ import adminRouter from './api/admin/admin-routes.js';
 import { createAdminAuthRouter } from './api/admin/admin-auth-routes.js';
 import { createAdminAnalyticsRouter } from './api/admin/admin-analytics-routes.js';
 import adminTeamRouter from './api/admin/admin-team-routes.js';
+import { createAdminAiUsageRouter } from './api/admin/admin-ai-usage-routes.js';
+import { ensureUsageStatsIndexes } from './gemma/usage-stats.js';
 import newsRouter from './api/seeker/news-routes.js';
 import { createEmployerAuthRouter } from './api/employer/employer-auth-routes.js';
 import employerCompanyRouter from './api/employer/employer-company-routes.js';
@@ -103,6 +105,9 @@ app.use('/api/seeker/users', usersRouter); // legacy 410 wildcard
 // is not gated by requireAdmin (a user with no admin session must be able to log in).
 app.use('/api/admin/auth', createAdminAuthRouter());
 app.use('/api/admin/team', requireAdmin, adminTeamRouter);
+// AI spend dashboard. Mounted before /api/admin so the generic admin router
+// never shadows it.
+app.use('/api/admin/ai-usage', requireAdmin, createAdminAiUsageRouter());
 app.use('/api/admin', adminRouter);
 // Admin analytics: jm_admin_token via new require-admin-middleware (D5 — standalone,
 // no seeker chain). Kept mounted separately (not under adminRouter) to preserve
@@ -144,6 +149,7 @@ const server = app.listen(PORT, async () => {
     await ensureJobIndexes();
     await ensureEmployerUserIndexes();
     await ensureAdminUserIndexes();
+    await ensureUsageStatsIndexes();
     await ensureEmployerAccessIndexes();
     await ensureCompanyIndexes();
     await ensureStageIndexes();

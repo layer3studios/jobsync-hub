@@ -77,6 +77,29 @@ export const GEMMA_SCRAPER_API_KEYS = process.env.GEMMA_SCRAPER_API_KEYS || '';
 export const GEMMA_MODEL = process.env.GEMMA_MODEL || 'gemma-4-26b-a4b-it';
 export const GEMMA_BASE_URL = process.env.GEMMA_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta';
 
+// ─── AI per-operation switches ─────────────────────────────────────
+// Each operation can be disabled independently without touching keys. Only the
+// scraper defaults OFF — it is the bursty, lowest-value consumer of quota, so
+// it must be opted into. Everything else defaults ON (backward compat).
+export const SCRAPER_JD_EXTRACTION_ENABLED = process.env.SCRAPER_JD_EXTRACTION_ENABLED === 'false';
+export const EMPLOYER_JD_EXTRACTION_ENABLED = process.env.EMPLOYER_JD_EXTRACTION_ENABLED !== 'false';
+export const EMPLOYER_SCORING_ENABLED = process.env.EMPLOYER_SCORING_ENABLED !== 'false';
+export const SEEKER_AI_ENABLED = process.env.SEEKER_AI_ENABLED !== 'false';
+
+// ─── AI model cascades (comma-separated, first = preferred) ────────
+// Reorder or add models from .env with no code change. Employer work gets the
+// strongest models; seeker and scraper lead with the high-quota Gemma tiers.
+export const EMPLOYER_AI_MODELS = process.env.EMPLOYER_AI_MODELS
+  || 'gemini-3.6-flash,gemini-3.5-flash,gemini-3-flash,gemini-2.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemma-4-31b,gemma-4-26b-a4b-it';
+export const SEEKER_AI_MODELS = process.env.SEEKER_AI_MODELS
+  || 'gemma-4-26b-a4b-it,gemma-4-31b,gemini-3.1-flash-lite,gemini-3.5-flash-lite';
+export const SCRAPER_AI_MODELS = process.env.SCRAPER_AI_MODELS
+  || 'gemma-4-26b-a4b-it,gemma-4-31b,gemini-3.1-flash-lite,gemini-3.5-flash-lite';
+
+// Stop at this fraction of a model's published limit, leaving headroom for
+// clock skew and requests already in flight.
+export const AI_SAFETY_MARGIN = Number(process.env.AI_SAFETY_MARGIN) || 0.85;
+
 // ─── Admin analytics (PostHog Query API) ──────────────────────────
 // Server-only. The personal key (phx_) is NEVER exposed to the client. All three are
 // optional at boot: when POSTHOG_PERSONAL_API_KEY is absent the admin analytics

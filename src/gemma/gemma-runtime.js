@@ -1,80 +1,145 @@
 // FILE: src/gemma/gemma-runtime.js
-// Process-wide singletons for the Gemma stack. initGemma() is called once on boot
-// (server.js). Two independent key pools serve two workload classes (R2):
+// Process-wide AI singletons. initGemma() is called once on boot (server.js).
 //
-//   scoring (real-time) — applicant scoring, resume parse/review, employer JD extract
-//   scraper (batch)     — scrape-pass JD extraction, bursty, dozens-to-hundreds of calls
+// Three TIERS share one key pool but get their own model cascade, so the
+// employer path can lead with the strongest models while seeker and scraper
+// lead with the high-quota Gemma tiers. Rate tracking, circuit breaking and the
+// response cache are shared across tiers — they are properties of the upstream
+// API, not of our callers, so a key burned by the scraper must be visible to
+// the employer path immediately.
 //
-// Each pool owns its KeyManager, so rate limits, blacklists and quota exhaustion in
-// one never starve the other. Keys should come from DIFFERENT GCP projects for the
-// isolation to be real — same-project keys share a quota bucket (R1).
-//
-// When the scraper pool is empty, getScraperGemmaClient() falls back to the scoring
-// client. That makes deploying this file a behavioural no-op until
-// GEMMA_SCRAPER_API_KEYS is actually set in the environment (C8a, C9).
+// BACKWARD COMPAT: with only GEMMA_API_KEYS (and optionally GEMMA_MODEL) set,
+// every tier gets the same keys and the default cascades, and the legacy
+// getScoringGemmaClient()/getScraperGemmaClient()/getGemmaClient() accessors
+// keep working. GEMMA_SCRAPER_API_KEYS, when set, still isolates scraper keys.
 
-import { GEMMA_API_KEYS, GEMMA_SCRAPER_API_KEYS, GEMMA_MODEL, GEMMA_BASE_URL } from '../env.js';
+import {
+  GEMMA_API_KEYS, GEMMA_SCRAPER_API_KEYS, GEMMA_MODEL, GEMMA_BASE_URL,
+  EMPLOYER_AI_MODELS, SEEKER_AI_MODELS, SCRAPER_AI_MODELS,
+  AI_SAFETY_MARGIN, SCRAPER_JD_EXTRACTION_ENABLED,
+} from '../env.js';
 import { KeyManager } from './key-manager.js';
 import { GemmaClient } from './gemma-client.js';
+import { RateLimitTracker } from './rate-limit-tracker.js';
+import { CircuitBreaker } from './circuit-breaker.js';
+import { ResponseCache } from './response-cache.js';
+import { ModelCascade } from './model-cascade.js';
 
+const RESPONSE_CACHE_SIZE = 1000;
+
+const parseList = (value) => String(value ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+
+let rateLimitTracker = null;
+let circuitBreaker = null;
+let responseCache = null;
+let employerCascade = null;
+let seekerCascade = null;
+let scraperCascade = null;
 let scoringKeyManager = null;
-let scoringClient = null;
 let scraperKeyManager = null;
-let scraperClient = null;
 
-/** A client for this pool, or null when the pool has no live keys. */
-function buildClient(keyManager) {
+/** One cascade over a key pool, or null when that pool has no live keys. */
+function buildCascade({ models, keyManager, tier }) {
   if (!keyManager.hasLiveKeys()) return null;
-  return new GemmaClient({ keyManager, model: GEMMA_MODEL, baseUrl: GEMMA_BASE_URL });
+  // GEMMA_MODEL stays the client's default so a legacy single-model .env still
+  // drives the URL when a cascade entry is somehow absent.
+  const client = new GemmaClient({ keyManager, model: GEMMA_MODEL, baseUrl: GEMMA_BASE_URL });
+  return new ModelCascade({
+    models: models.length > 0 ? models : [GEMMA_MODEL],
+    keys: keyManager.keys,
+    keyManager, client, rateLimitTracker, circuitBreaker, responseCache, tier,
+  });
 }
 
-/** One line, once per initGemma(). Counts only — never key material (C12). */
-function logPoolStatus(scoringLiveKeys, scraperLiveKeys, scraperUsesFallback) {
-  if (scoringLiveKeys === 0 && scraperLiveKeys === 0) {
-    console.log('[gemma] Initialized — no keys configured; extraction and scoring disabled');
-  } else if (scraperUsesFallback) {
-    console.log(`[gemma] Initialized — scoring pool: ${scoringLiveKeys} live keys, scraper pool: fallback (set GEMMA_SCRAPER_API_KEYS to isolate)`);
-  } else {
-    console.log(`[gemma] Initialized — scoring pool: ${scoringLiveKeys} live keys, scraper pool: ${scraperLiveKeys} live keys`);
+function logTier(tier, cascade, disabledReason) {
+  if (disabledReason) {
+    console.log(`[ai] ${tier} tier: DISABLED (${disabledReason})`);
+    return;
   }
+  if (!cascade) {
+    console.log(`[ai] ${tier} tier: DISABLED (no API keys configured)`);
+    return;
+  }
+  const combos = cascade.models.length * cascade.keys.length;
+  console.log(`[ai] ${tier} tier: ${cascade.models.length} models × ${cascade.keys.length} keys = ${combos} combos`);
 }
 
 /**
- * Build both singleton pools from env (or explicit key strings, for tests).
- * Both parameters are optional, so initGemma() keeps its old zero-arg contract (C8c).
- * Returns { scoringLiveKeys, scraperLiveKeys, scraperUsesFallback }.
+ * Build every singleton from env (or explicit key strings, for tests).
+ * Returns { scoringLiveKeys, scraperLiveKeys, scraperUsesFallback } — the same
+ * shape the previous implementation returned, so callers are unchanged.
  */
 export function initGemma(scoringKeysString = GEMMA_API_KEYS, scraperKeysString = GEMMA_SCRAPER_API_KEYS) {
-  scoringKeyManager = new KeyManager(scoringKeysString);
-  scoringClient = buildClient(scoringKeyManager);
+  rateLimitTracker = new RateLimitTracker(AI_SAFETY_MARGIN);
+  circuitBreaker = new CircuitBreaker();
+  responseCache = new ResponseCache(RESPONSE_CACHE_SIZE);
 
+  scoringKeyManager = new KeyManager(scoringKeysString);
   scraperKeyManager = new KeyManager(scraperKeysString);
-  scraperClient = buildClient(scraperKeyManager);
+
+  employerCascade = buildCascade({ models: parseList(EMPLOYER_AI_MODELS), keyManager: scoringKeyManager, tier: 'employer' });
+  seekerCascade = buildCascade({ models: parseList(SEEKER_AI_MODELS), keyManager: scoringKeyManager, tier: 'seeker' });
+  // The scraper prefers its own pool; with none configured it shares the main
+  // pool, exactly as the previous fallback did.
+  const scraperPool = scraperKeyManager.hasLiveKeys() ? scraperKeyManager : scoringKeyManager;
+  scraperCascade = buildCascade({ models: parseList(SCRAPER_AI_MODELS), keyManager: scraperPool, tier: 'scraper' });
 
   const scoringLiveKeys = scoringKeyManager.liveKeyCount();
   const scraperLiveKeys = scraperKeyManager.liveKeyCount();
-  const scraperUsesFallback = scraperLiveKeys === 0;
 
-  logPoolStatus(scoringLiveKeys, scraperLiveKeys, scraperUsesFallback);
-  return { scoringLiveKeys, scraperLiveKeys, scraperUsesFallback };
+  logTier('employer', employerCascade);
+  logTier('seeker', seekerCascade);
+  logTier('scraper', scraperCascade, SCRAPER_JD_EXTRACTION_ENABLED ? null : 'SCRAPER_JD_EXTRACTION_ENABLED=false');
+
+  return { scoringLiveKeys, scraperLiveKeys, scraperUsesFallback: scraperLiveKeys === 0 };
 }
 
-/** The real-time pool client, or null when no scoring keys are configured. */
-export function getScoringGemmaClient() {
-  return scoringClient;
+export function getEmployerAiClient() {
+  return employerCascade;
+}
+
+export function getSeekerAiClient() {
+  return seekerCascade;
+}
+
+/** Null when extraction is switched off, so callers need no separate flag check. */
+export function getScraperAiClient() {
+  if (!SCRAPER_JD_EXTRACTION_ENABLED) return null;
+  return scraperCascade;
 }
 
 /**
- * The batch pool client. Falls back to the scoring client when the scraper pool
- * has no live keys — so this returns null only when BOTH pools are empty (C9).
+ * Live per-model/per-key budget snapshot for the admin dashboard. Reports key
+ * INDEXES, never key material. Null before initGemma() has run.
  */
-export function getScraperGemmaClient() {
-  return scraperClient ?? scoringClient;
+export function getAiUsageSnapshot() {
+  if (!rateLimitTracker) return null;
+  const keys = scoringKeyManager ? scoringKeyManager.keys : [];
+  const scraperKeys = scraperKeyManager ? scraperKeyManager.keys : [];
+  // One index space across both pools, so a scraper-only key still resolves.
+  const allKeys = [...keys, ...scraperKeys.filter((key) => !keys.includes(key))];
+  return rateLimitTracker.exportState(allKeys);
 }
 
-/** Deprecated: use getScoringGemmaClient() explicitly. Kept for backward compat (C8b). */
+// ─── Shared instrumentation (exported for logging / tests) ─────────
+export const getRateLimitTracker = () => rateLimitTracker;
+export const getCircuitBreaker = () => circuitBreaker;
+export const getResponseCache = () => responseCache;
+
+// ─── Backward-compatible accessors ─────────────────────────────────
+/** Deprecated: use getEmployerAiClient(). */
+export function getScoringGemmaClient() {
+  return getEmployerAiClient();
+}
+
+/** Deprecated: use getScraperAiClient(). */
+export function getScraperGemmaClient() {
+  return getScraperAiClient();
+}
+
+/** Deprecated: use getEmployerAiClient(). */
 export function getGemmaClient() {
-  return getScoringGemmaClient();
+  return getEmployerAiClient();
 }
 
 export function getScoringKeyManager() {
@@ -85,7 +150,7 @@ export function getScraperKeyManager() {
   return scraperKeyManager;
 }
 
-/** Deprecated: use getScoringKeyManager() explicitly. Kept for backward compat. */
+/** Deprecated: use getScoringKeyManager(). */
 export function getKeyManager() {
   return getScoringKeyManager();
 }
