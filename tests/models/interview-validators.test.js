@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 
 import {
   validateProposedSlots, validateInterviewMode, validateDurationMinutes, validateMeetingLocation,
+  requireSendableVideoLink,
 } from '../../src/models/interview/interview-validators.js';
 import { INTERVIEW_ERROR_CODES, INTERVIEW_MODES } from '../../src/models/interview/interview-constants.js';
 
@@ -63,17 +64,46 @@ test('validateDurationMinutes bounds: 15-480 inclusive, integers only', () => {
   expectCode(() => validateDurationMinutes('45'), INTERVIEW_ERROR_CODES.INVALID_DURATION);
 });
 
-test('validateMeetingLocation: video requires absolute http(s) meetingUrl', () => {
+test('validateMeetingLocation: video validates a supplied meetingUrl', () => {
   const normalized = validateMeetingLocation(INTERVIEW_MODES.VIDEO, ' https://meet.jobmesh.in/x ', null);
-  assert.deepEqual(normalized, { meetingUrl: 'https://meet.jobmesh.in/x', locationText: null });
-  expectCode(() => validateMeetingLocation(INTERVIEW_MODES.VIDEO, null, 'Office'), INTERVIEW_ERROR_CODES.INVALID_MEETING_LOCATION);
+  assert.equal(normalized.meetingUrl, 'https://meet.jobmesh.in/x');
+  assert.equal(normalized.locationText, null);
+  assert.equal(normalized.phoneNumber, null);
+  // A malformed link is still rejected — optional does not mean unvalidated.
   expectCode(() => validateMeetingLocation(INTERVIEW_MODES.VIDEO, 'meet.jobmesh.in/x', null), INTERVIEW_ERROR_CODES.INVALID_MEETING_LOCATION);
 });
 
-test('validateMeetingLocation: phone and in_person require locationText', () => {
-  for (const mode of [INTERVIEW_MODES.PHONE, INTERVIEW_MODES.IN_PERSON]) {
-    const normalized = validateMeetingLocation(mode, null, ' JobMesh HQ, Bengaluru ');
-    assert.deepEqual(normalized, { meetingUrl: null, locationText: 'JobMesh HQ, Bengaluru' });
-    expectCode(() => validateMeetingLocation(mode, 'https://meet.jobmesh.in/x', ''), INTERVIEW_ERROR_CODES.INVALID_MEETING_LOCATION);
+test('validateMeetingLocation: video meetingUrl is OPTIONAL (per-date link flow)', () => {
+  // Saving type + duration with no link yet must succeed: the link is entered
+  // per date on each interview_times doc.
+  for (const empty of [null, undefined, '', '   ']) {
+    const normalized = validateMeetingLocation(INTERVIEW_MODES.VIDEO, empty, null);
+    assert.equal(normalized.meetingUrl, null);
   }
+});
+
+test('requireSendableVideoLink: enforced at SEND time, not on defaults', () => {
+  assert.equal(requireSendableVideoLink(INTERVIEW_MODES.VIDEO, ' https://meet.jobmesh.in/x '), 'https://meet.jobmesh.in/x');
+  assert.equal(requireSendableVideoLink(INTERVIEW_MODES.PHONE, null), null); // non-video: no link needed
+  expectCode(() => requireSendableVideoLink(INTERVIEW_MODES.VIDEO, null), INTERVIEW_ERROR_CODES.INVALID_MEETING_LOCATION);
+});
+
+test('validateMeetingLocation: phone requires phoneNumber + phoneCallDirection', () => {
+  const normalized = validateMeetingLocation(INTERVIEW_MODES.PHONE, null, null, {
+    phoneNumber: ' +91 98765 43210 ', phoneCallDirection: 'we_call',
+  });
+  assert.equal(normalized.phoneNumber, '+91 98765 43210');
+  assert.equal(normalized.phoneCallDirection, 'we_call');
+  assert.equal(normalized.locationText, null);
+  expectCode(() => validateMeetingLocation(INTERVIEW_MODES.PHONE, null, null, { phoneCallDirection: 'we_call' }), INTERVIEW_ERROR_CODES.INVALID_PHONE_DETAILS);
+  expectCode(() => validateMeetingLocation(INTERVIEW_MODES.PHONE, null, null, { phoneNumber: '+91 1' }), INTERVIEW_ERROR_CODES.INVALID_PHONE_DETAILS);
+});
+
+test('validateMeetingLocation: in_person requires locationText; instructions optional', () => {
+  const normalized = validateMeetingLocation(INTERVIEW_MODES.IN_PERSON, null, ' JobMesh HQ, Bengaluru ', {
+    arrivalInstructions: ' Ask for Ashish at reception ',
+  });
+  assert.equal(normalized.locationText, 'JobMesh HQ, Bengaluru');
+  assert.equal(normalized.arrivalInstructions, 'Ask for Ashish at reception');
+  expectCode(() => validateMeetingLocation(INTERVIEW_MODES.IN_PERSON, 'https://meet.jobmesh.in/x', ''), INTERVIEW_ERROR_CODES.INVALID_MEETING_LOCATION);
 });

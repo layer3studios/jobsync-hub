@@ -9,7 +9,7 @@ import { getApplicationForCompany as defaultGetApplication } from '../../models/
 import { getPostingForCompany as defaultGetPosting } from '../../models/employer/posting-model.js';
 import {
   createInterviewForCompany, listInterviewsForApplication,
-  INTERVIEW_STATUSES, INTERVIEW_ERROR_CODES,
+  INTERVIEW_STATUSES, INTERVIEW_ERROR_CODES, INTERVIEW_MODES,
 } from '../../models/interview/index.js';
 import { countAvailableTimesForPosting as defaultCountAvailable } from '../../models/interview/interview-time-model.js';
 import { AUDIT_EVENTS } from '../../models/dpdp/dpdp-constants.js';
@@ -45,6 +45,20 @@ export async function sendPoolSchedulingLink(companyId, applicationId, actorEmpl
     throw new HttpError(400, 'No available times — add more on the posting settings.', INTERVIEW_ERROR_CODES.POOL_EMPTY);
   }
 
+  // SEND-time video-link gate. Saving defaults no longer demands a link (it is
+  // entered per date), so this is the first point where one is actually needed:
+  // the candidate must end up with a joinable slot. Satisfied by a default link
+  // OR by at least one available time carrying its own.
+  if (posting.interviewDefaults.mode === INTERVIEW_MODES.VIDEO && !posting.interviewDefaults.meetingUrl) {
+    const linkedCount = await countAvailable(companyId, posting._id, new Date(), { requireMeetingUrl: true });
+    if (linkedCount === 0) {
+      throw new HttpError(
+        400, 'Add a meeting link to your interview times before sending.',
+        INTERVIEW_ERROR_CODES.INVALID_MEETING_LOCATION,
+      );
+    }
+  }
+
   const existing = await listInterviewsForApplication(companyId, applicationId);
   if (existing.some((interview) => ACTIVE_STATUSES.includes(interview.status))) {
     throw new HttpError(409, 'An interview is already proposed or scheduled for this application', INTERVIEW_ERROR_CODES.INTERVIEW_ALREADY_ACTIVE);
@@ -62,6 +76,9 @@ export async function sendPoolSchedulingLink(companyId, applicationId, actorEmpl
     mode: defaults.mode,
     meetingUrl: defaults.meetingUrl,
     locationText: defaults.locationText,
+    phoneNumber: defaults.phoneNumber ?? null,
+    phoneCallDirection: defaults.phoneCallDirection ?? null,
+    arrivalInstructions: defaults.arrivalInstructions ?? null,
     interviewerEmployerUserIds: [],
   }, actorEmployerUserId);
 

@@ -15,6 +15,7 @@ import {
   proposeInterviewForCompany, rescheduleInterviewForCompany,
 } from '../../services/interview/interview-scheduling-service.js';
 import { cancelInterviewForCompanyWithNotice } from '../../services/interview/interview-cancel-service.js';
+import { submitInterviewFeedback, handleNoShow } from '../../services/interview/interview-feedback-service.js';
 import { sendPoolSchedulingLink } from '../../services/interview/pool-scheduling-service.js';
 import {
   listInterviewsForApplication, toPublicInterview, INTERVIEW_ERROR_CODES,
@@ -89,6 +90,38 @@ router.post('/interviews/:interviewId/cancel', requireMemberOrHigher, asyncHandl
   );
   if (!interview) throw new HttpError(404, 'Interview not found', INTERVIEW_ERROR_CODES.INTERVIEW_NOT_FOUND);
   res.json({ data: toPublicInterview(interview) });
+}));
+
+// Post-interview outcome errors → HTTP. Not-found stays 404 (never confirms a
+// cross-tenant interview exists); everything else is a 400 with the code.
+const OUTCOME_ERROR_STATUS = {
+  [INTERVIEW_ERROR_CODES.INTERVIEW_NOT_FOUND]: 404,
+};
+function throwOutcomeError(code) {
+  throw new HttpError(OUTCOME_ERROR_STATUS[code] ?? 400, 'Cannot record interview outcome', code);
+}
+
+// POST /api/employer/interviews/:interviewId/complete — { recommendation, feedbackText }.
+router.post('/interviews/:interviewId/complete', requireMemberOrHigher, asyncHandler(async (req, res) => {
+  const result = await submitInterviewFeedback(req.employerCompanyId, req.params.interviewId, {
+    recommendation: req.body?.recommendation,
+    feedbackText: req.body?.feedbackText,
+    actorUserId: req.employerUser.employerUserId,
+  });
+  if (result.error) throwOutcomeError(result.error);
+  const { interview, ...rest } = result;
+  res.json({ data: { interview: toPublicInterview(interview), ...rest } });
+}));
+
+// POST /api/employer/interviews/:interviewId/no-show — { note? }.
+router.post('/interviews/:interviewId/no-show', requireMemberOrHigher, asyncHandler(async (req, res) => {
+  const result = await handleNoShow(req.employerCompanyId, req.params.interviewId, {
+    note: req.body?.note,
+    actorUserId: req.employerUser.employerUserId,
+  });
+  if (result.error) throwOutcomeError(result.error);
+  const { interview, ...rest } = result;
+  res.json({ data: { interview: toPublicInterview(interview), ...rest } });
 }));
 
 export default router;

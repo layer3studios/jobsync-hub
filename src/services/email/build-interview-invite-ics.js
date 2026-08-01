@@ -58,8 +58,11 @@ function rewriteDtstampAsUtc(icsString, stampAtUtc) {
  *   meeting URL / reschedule link / recruiter contact belong here
  */
 
+/** LOCATION by mode: the join URL, "Phone call" (no physical place), or the address. */
 function resolveLocation(input) {
-  return input.mode === INTERVIEW_MODES.VIDEO ? input.meetingUrl : input.locationText;
+  if (input.mode === INTERVIEW_MODES.VIDEO) return input.meetingUrl;
+  if (input.mode === INTERVIEW_MODES.PHONE) return 'Phone call';
+  return input.locationText;
 }
 
 /** One calendar + one event, shared by both builders. Returns the ICS string. */

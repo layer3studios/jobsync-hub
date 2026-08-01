@@ -10,6 +10,7 @@ import { createStageChange } from '../../models/public/stage-change-model.js';
 import { getArchiveReasonForCompany } from '../../models/employer/archive-reason-model.js';
 import { toEmployerApplication } from './applicant-mappers.js';
 import { setApplicationFieldsForCompany } from './application-writer.js';
+import { sendRejectionEmail as defaultSendRejectionEmail } from '../email/rejection-email-service.js';
 
 // Cap on one bulk request (R4/D1). Sequential loop; async/paging is future scaling work.
 const BULK_ARCHIVE_MAX_SIZE = 50;
@@ -25,8 +26,14 @@ const BULK_ARCHIVE_ERROR_CODES = {
   INTERNAL_ERROR: 'INTERNAL_ERROR',               // per-item fallback
 };
 
-/** Archive an application under a company-owned reason. Refuses if already archived. */
-export async function archiveApplicant(companyId, applicationId, { reasonId, note } = {}, movedByUserId = null) {
+/**
+ * Archive an application under a company-owned reason. Refuses if already
+ * archived. The rejection email is a SIDE EFFECT, never a gate: it runs after
+ * the archive succeeds, the service itself never throws, and skipEmail lets
+ * the employer opt out per archive.
+ */
+export async function archiveApplicant(companyId, applicationId, { reasonId, note, skipEmail = false } = {}, movedByUserId = null, deps = {}) {
+  const { sendRejection = defaultSendRejectionEmail } = deps;
   const reason = await getArchiveReasonForCompany(companyId, reasonId);
   if (!reason) throw new HttpError(400, 'Archive reason not found', 'REASON_NOT_FOUND');
 
@@ -45,6 +52,8 @@ export async function archiveApplicant(companyId, applicationId, { reasonId, not
     note: `Archived: ${reason.text}`,
   });
 
+  await sendRejection(companyId, application._id, { reason: reason.text, skipEmail });
+
   return { application: toEmployerApplication(updated) };
 }
 
@@ -55,7 +64,7 @@ export async function archiveApplicant(companyId, applicationId, { reasonId, not
  * failures are collected into failed[] rather than aborting the run (partial success is
  * first-class). Sequential (R4) and deduped (R5). companyId is caller-supplied (C2/C8).
  */
-export async function bulkArchiveApplicants(companyId, { applicationIds, reasonId, note } = {}, movedByUserId = null) {
+export async function bulkArchiveApplicants(companyId, { applicationIds, reasonId, note, skipEmail = false } = {}, movedByUserId = null) {
   if (!Array.isArray(applicationIds) || applicationIds.length === 0) {
     throw new HttpError(400, 'applicationIds is required and must be non-empty', BULK_ARCHIVE_ERROR_CODES.BULK_EMPTY);
   }
@@ -73,7 +82,7 @@ export async function bulkArchiveApplicants(companyId, { applicationIds, reasonI
 
   for (const id of uniqueIds) {
     try {
-      await archiveApplicant(companyId, id, { reasonId, note }, movedByUserId);
+      await archiveApplicant(companyId, id, { reasonId, note, skipEmail }, movedByUserId);
       succeeded.push({ id });
     } catch (err) {
       if (err instanceof HttpError) {

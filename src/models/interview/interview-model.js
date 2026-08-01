@@ -74,6 +74,10 @@ export async function createInterviewForCompany(companyId, input, createdByEmplo
     mode: input.mode,
     meetingUrl: input.meetingUrl ?? null,
     locationText: input.locationText ?? null,
+    // Type-aware details, snapshotted at creation like meetingUrl/locationText.
+    phoneNumber: input.phoneNumber ?? null,
+    phoneCallDirection: input.phoneCallDirection ?? null, // phone mode only
+    arrivalInstructions: input.arrivalInstructions ?? null, // in_person mode only
     calendarUid: generateCalendarUid(),
     calendarSequence: 0,
     interviewerEmployerUserIds: (input.interviewerEmployerUserIds ?? []).map(toOid).filter(Boolean),
@@ -81,6 +85,7 @@ export async function createInterviewForCompany(companyId, input, createdByEmplo
     bookingToken: generateBookingToken(),
     bookingTokenExpiresAt: new Date(now.getTime() + BOOKING_TOKEN_TTL_DAYS * MILLISECONDS_PER_DAY),
     googleCalendarEventId: null, // reserved for the phase-2 Google adapter
+    feedbackRequestSentAt: null, // post-interview nudge dedupe (Part 5)
     bookedAt: null,
     cancelledAt: null,
     cancelReason: null,

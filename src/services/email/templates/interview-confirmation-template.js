@@ -10,17 +10,28 @@
 
 import { renderEmailShell, renderPlainText } from './email-layout-helpers.js';
 import { formatStartLine } from './email-format-helpers.js';
-import { INTERVIEW_MODES } from '../calendar-invite-constants.js';
+import { confirmationDetailLines } from './interview-mode-details.js';
 
-function whereBlock(mode, meetingUrl, locationText) {
-  if (mode === INTERVIEW_MODES.VIDEO) return `Join the call: ${meetingUrl}`;
-  return `Location: ${locationText}`;
+/** The mode-specific "where / how" lines, e.g. the video link, the phone
+ *  arrangement (who calls whom), or the address + Maps link. */
+function detailLines(input) {
+  return confirmationDetailLines({
+    mode: input.mode,
+    meetingUrl: input.meetingUrl,
+    locationText: input.locationText,
+    arrivalInstructions: input.arrivalInstructions,
+    phoneNumber: input.phoneNumber,
+    phoneCallDirection: input.phoneCallDirection,
+    candidatePhone: input.candidatePhone,
+    startLine: formatStartLine(input.startAtUtc, input.timezoneId),
+  });
 }
 
-export function buildCandidateConfirmationEmail({
-  candidateName, companyName, postingTitle, startAtUtc, timezoneId,
-  durationMinutes, mode, meetingUrl, locationText, organizerEmail,
-}) {
+export function buildCandidateConfirmationEmail(input) {
+  const {
+    candidateName, companyName, postingTitle, startAtUtc, timezoneId,
+    durationMinutes, organizerEmail,
+  } = input;
   const shellInput = {
     previewText: `Your interview with ${companyName} is confirmed`,
     headingText: 'Your interview is confirmed',
@@ -28,7 +39,7 @@ export function buildCandidateConfirmationEmail({
       `Hi ${candidateName},`,
       `Your interview with ${companyName} for the ${postingTitle} position is confirmed.`,
       `When: ${formatStartLine(startAtUtc, timezoneId)} (${durationMinutes} minutes)`,
-      whereBlock(mode, meetingUrl, locationText),
+      ...detailLines(input),
       `Need to change something? Reply to this email or write to ${organizerEmail}.`,
       'A calendar invitation is attached — accept it and the interview lands in your calendar.',
     ],
@@ -41,17 +52,18 @@ export function buildCandidateConfirmationEmail({
   };
 }
 
-export function buildInterviewerConfirmationEmail({
-  candidateName, candidateEmail, companyName, postingTitle, startAtUtc,
-  timezoneId, durationMinutes, mode, meetingUrl, locationText,
-}) {
+export function buildInterviewerConfirmationEmail(input) {
+  const {
+    candidateName, candidateEmail, companyName, postingTitle, startAtUtc,
+    timezoneId, durationMinutes,
+  } = input;
   const shellInput = {
     previewText: `Interview booked with ${candidateName} for ${postingTitle}`,
     headingText: 'Interview booked',
     bodyBlocks: [
       `${candidateName} (${candidateEmail}) booked an interview for the ${postingTitle} position at ${companyName}.`,
       `When: ${formatStartLine(startAtUtc, timezoneId)} (${durationMinutes} minutes)`,
-      whereBlock(mode, meetingUrl, locationText),
+      ...detailLines(input),
       'The attached calendar invitation adds it to your calendar.',
     ],
     footerLines: ['Internal notification — not visible to the candidate.'],

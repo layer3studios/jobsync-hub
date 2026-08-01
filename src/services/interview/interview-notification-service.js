@@ -36,6 +36,7 @@ export async function sendInterviewInvitationEmail(context, deps = {}) {
     timezoneId: interview.timezoneId,
     durationMinutes: interview.durationMinutes,
     mode: interview.mode,
+    phoneCallDirection: interview.phoneCallDirection,
     locationText: interview.locationText,
     bookingUrl: buildBookingUrl(interview.bookingToken),
     expiresAt: interview.bookingTokenExpiresAt,
@@ -56,6 +57,11 @@ function sharedTimeFields(context) {
     mode: interview.mode,
     meetingUrl: interview.meetingUrl,
     locationText: interview.locationText,
+    // Type-aware details for phone / in-person confirmations.
+    phoneNumber: interview.phoneNumber,
+    phoneCallDirection: interview.phoneCallDirection,
+    arrivalInstructions: interview.arrivalInstructions,
+    candidatePhone: context.candidatePhone,
   };
 }
 
