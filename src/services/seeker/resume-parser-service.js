@@ -5,7 +5,8 @@
 // output is defaulted/validated in code so storage sees a stable shape (R5).
 
 import { HttpError } from '../../middleware/error-handler-middleware.js';
-import { getScoringGemmaClient as getGemmaClient } from '../../gemma/gemma-runtime.js';
+import { getSeekerAiClient as getGemmaClient } from '../../gemma/gemma-runtime.js';
+import { SEEKER_AI_ENABLED } from '../../env.js';
 
 const SENIORITY_LEVELS = ['Entry', 'Mid', 'Senior', 'Lead', 'Executive'];
 
@@ -87,7 +88,9 @@ function normalize(p) {
 
 /** Parse resume text into a normalized profile. Throws 503 if Gemma is off. */
 export async function parseResumeText(text) {
-  const client = getGemmaClient();
+  // Same 503 whether the tier is switched off or unconfigured — from the
+  // seeker's side both mean "unavailable right now".
+  const client = SEEKER_AI_ENABLED ? getGemmaClient() : null;
   if (!client) throw new HttpError(503, 'Resume parsing is temporarily unavailable.', 'GEMMA_UNAVAILABLE');
   const raw = await client.generateContent(SYSTEM_PROMPT, String(text).slice(0, 100000));
   return normalize(parseJson(raw));

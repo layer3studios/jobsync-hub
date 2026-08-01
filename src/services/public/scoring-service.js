@@ -12,7 +12,8 @@ import { upsertResumeScore } from '../../models/public/resume-score-model.js';
 import { mergeContactEnrichmentForCompany as defaultMergeContactEnrichment } from '../../models/public/contact-model.js';
 import { getResumeBuffer as defaultGetResumeBuffer } from './resume-storage-service.js';
 import { extractTextFromPDF as defaultExtractText } from '../seeker/resume-text-extractor.js';
-import { getScoringGemmaClient as defaultGetGemmaClient } from '../../gemma/gemma-runtime.js';
+import { getEmployerAiClient as defaultGetGemmaClient } from '../../gemma/gemma-runtime.js';
+import { EMPLOYER_SCORING_ENABLED } from '../../env.js';
 import { buildScoringSystemPrompt, parseScoreResponse } from './scoring-prompt.js';
 
 const MINIMUM_RESUME_TEXT_LENGTH = 200;
@@ -61,6 +62,10 @@ export async function scoreApplication(applicationId, deps = {}) {
 
   const application = await loadApplication(applicationId);
   if (!application) throw new Error(`scoreApplication: application ${applicationId} not found`);
+
+  // Kill switch: record why the score is absent rather than silently skipping,
+  // so the UI can distinguish "off" from "failed".
+  if (!EMPLOYER_SCORING_ENABLED) return storeError(application, 'SCORING_DISABLED');
 
   try {
     const resumeFile = await getResumeFileForApplication(application._id);
