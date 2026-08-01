@@ -48,6 +48,7 @@ import { createEmployerAuthRouter } from './api/employer/employer-auth-routes.js
 import employerCompanyRouter from './api/employer/employer-company-routes.js';
 import employerPostingsRouter from './api/employer/employer-postings-routes.js';
 import employerAssignmentsRouter from './api/employer/employer-assignments-routes.js';
+import employerAssignmentReviewsRouter from './api/employer/employer-assignment-reviews-routes.js';
 import employerApplicantRouter from './api/employer/employer-applicant-routes.js';
 import employerSavedViewsRouter from './api/employer/employer-saved-views-routes.js';
 import employerStagesRouter from './api/employer/employer-stages-routes.js';
@@ -121,6 +122,7 @@ app.use('/api/employer/company', requireEmployer, employerCompanyRouter);
 app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerPostingsRouter);
 app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerSavedViewsRouter);
 app.use('/api/employer/assignments', requireEmployer, requireEmployerCompany, employerAssignmentsRouter);
+app.use('/api/employer/assignment-reviews', requireEmployer, requireEmployerCompany, employerAssignmentReviewsRouter);
 app.use('/api/employer/applicants', requireEmployer, requireEmployerCompany, employerApplicantRouter);
 app.use('/api/employer/stages', requireEmployer, requireEmployerCompany, employerStagesRouter);
 app.use('/api/employer/archive-reasons', requireEmployer, requireEmployerCompany, employerArchiveReasonsRouter);

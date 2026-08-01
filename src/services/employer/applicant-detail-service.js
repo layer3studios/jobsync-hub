@@ -12,6 +12,12 @@ import { getResumeScoreForApplication, toPublicResumeScore } from '../../models/
 import { listStageChangesForApplication } from '../../models/public/stage-change-model.js';
 import { getResumeFileForApplication } from '../../models/public/resume-file-model.js';
 import { getScoreJobStatusForApplication } from '../public/resume-score-queue-service.js';
+import {
+  getAssignmentSubmissionForCompany, toPublicAssignmentSubmission,
+} from '../../models/public/assignment-submission-model.js';
+import {
+  getAssignmentReviewForSubmission, toPublicAssignmentReview,
+} from '../../models/public/assignment-review-model.js';
 import { toEmployerApplication, toEmployerStageChange, toResumeMeta } from './applicant-mappers.js';
 import { signResumeToken } from './signed-url-service.js';
 
@@ -28,6 +34,15 @@ export async function getApplicantDetailForCompany(companyId, applicationId) {
   // "Rescoring…" while a job is queued/processing. null when no job doc exists.
   const scoreJobStatus = await getScoreJobStatusForApplication(application._id);
 
+  // Legacy applications carry no assignmentSubmissionId, so neither collection is
+  // queried at all for them — the UI renders "No assignment required" from nulls.
+  const assignmentSubmission = application.assignmentSubmissionId
+    ? await getAssignmentSubmissionForCompany(companyId, application.assignmentSubmissionId)
+    : null;
+  const assignmentReview = assignmentSubmission
+    ? await getAssignmentReviewForSubmission(companyId, assignmentSubmission._id)
+    : null;
+
   const resumeMeta = resumeFile ? toResumeMeta(resumeFile) : null;
   const resumeDownloadUrl = resumeMeta
     ? `/api/public/resume-download?token=${signResumeToken(application._id)}`
@@ -41,6 +56,11 @@ export async function getApplicantDetailForCompany(companyId, applicationId) {
     stageChanges: stageChanges.map(toEmployerStageChange),
     resumeMeta,
     resumeDownloadUrl,
+    // Two SEPARATE scoring axes. `score` above is the AI resume score (0-100 with
+    // tiers); assignmentReview.overallScore is a human 1-5 verdict. They measure
+    // different things on different scales — never blend or average them.
+    assignmentSubmission: assignmentSubmission ? toPublicAssignmentSubmission(assignmentSubmission) : null,
+    assignmentReview: assignmentReview ? toPublicAssignmentReview(assignmentReview) : null,
   };
 }
 

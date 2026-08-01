@@ -147,6 +147,48 @@ export async function listAssignmentSubmissionsForApplications(companyId, applic
 }
 
 /**
+ * Submission + review counts for ONE posting, computed across every application
+ * for it — never by reducing whatever rows a caller happens to be holding.
+ *
+ * These numbers describe the POSTING, so they must not move when the employer
+ * paginates or filters the list. Deriving them from the fetched page would make
+ * them drift as the employer flips pages, which turns a summary strip into noise.
+ * Returns { submitted, reviewed, passing }; the caller supplies `total` from the
+ * applications collection, which is the one number that lives outside this one.
+ */
+export async function getAssignmentSubmissionStatsForJob(companyId, jobId) {
+  const companyOid = toOid(companyId);
+  const jobOid = toOid(jobId);
+  if (!companyOid || !jobOid) return { submitted: 0, reviewed: 0, passing: 0 };
+  const collection = await submissionsCol();
+  const [stats] = await collection.aggregate([
+    { $match: { companyId: companyOid, jobId: jobOid } },
+    {
+      $lookup: {
+        from: 'assignment_reviews',
+        localField: '_id',
+        foreignField: 'assignmentSubmissionId',
+        as: 'review',
+      },
+    },
+    { $addFields: { reviewDoc: { $first: '$review' } } },
+    {
+      $group: {
+        _id: null,
+        submitted: { $sum: 1 },
+        reviewed: { $sum: { $cond: [{ $ifNull: ['$reviewDoc', false] }, 1, 0] } },
+        passing: { $sum: { $cond: [{ $eq: ['$reviewDoc.passesBar', true] }, 1, 0] } },
+      },
+    },
+  ]).toArray();
+  return {
+    submitted: stats?.submitted ?? 0,
+    reviewed: stats?.reviewed ?? 0,
+    passing: stats?.passing ?? 0,
+  };
+}
+
+/**
  * Data-deletion tombstone: stamp filesDeletedAt and empty files[]. Deliberately
  * does NOT touch disk — the caller owns the filesystem side, so this stays a pure
  * DB op that a transaction can roll back.
