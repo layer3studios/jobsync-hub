@@ -7,6 +7,7 @@
 import { renderEmailShell, renderPlainText } from './email-layout-helpers.js';
 import { formatSlotLine, formatExpiryDate } from './email-format-helpers.js';
 import { INTERVIEW_MODES } from '../calendar-invite-constants.js';
+import { afterBookingLine } from './interview-mode-details.js';
 
 const MODE_LABELS = Object.freeze({
   [INTERVIEW_MODES.VIDEO]: 'video call',
@@ -16,7 +17,7 @@ const MODE_LABELS = Object.freeze({
 
 export function buildInterviewInvitationEmail({
   candidateName, companyName, postingTitle, proposedSlots, timezoneId,
-  durationMinutes, mode, locationText, bookingUrl, expiresAt,
+  durationMinutes, mode, phoneCallDirection, locationText, bookingUrl, expiresAt,
 }) {
   const modeLabel = MODE_LABELS[mode] ?? mode;
   const bodyBlocks = [
@@ -37,6 +38,9 @@ export function buildInterviewInvitationEmail({
   if (mode === INTERVIEW_MODES.IN_PERSON && locationText) {
     bodyBlocks.push(`Location: ${locationText}`);
   }
+  // What happens after booking, by mode — the candidate should know what to
+  // expect before they commit to a time.
+  bodyBlocks.push(afterBookingLine({ mode, phoneCallDirection }));
   bodyBlocks.push(`This link expires on ${formatExpiryDate(expiresAt, timezoneId)}.`);
 
   const shellInput = {

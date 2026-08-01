@@ -5,16 +5,24 @@
 // recipient needs must be inside the description lines built here.
 
 import { CALENDAR_INVITE_CONTENT_TYPE } from '../email/email-constants.js';
-import { CALENDAR_INVITE_FILENAME, INTERVIEW_MODES } from '../email/calendar-invite-constants.js';
+import { CALENDAR_INVITE_FILENAME } from '../email/calendar-invite-constants.js';
+import { confirmationDetailLines } from '../email/templates/interview-mode-details.js';
+import { formatStartLine } from '../email/templates/email-format-helpers.js';
 
 function buildIcsDescriptionLines(context) {
   const { interview, organizerEmail } = context;
-  const lines = [];
-  if (interview.mode === INTERVIEW_MODES.VIDEO && interview.meetingUrl) {
-    lines.push(`Join the call: ${interview.meetingUrl}`);
-  } else if (interview.locationText) {
-    lines.push(`Location: ${interview.locationText}`);
-  }
+  // Same mode-aware lines as the confirmation emails (Outlook hides the email
+  // body when an .ics is attached — the description IS what gets read).
+  const lines = confirmationDetailLines({
+    mode: interview.mode,
+    meetingUrl: interview.meetingUrl,
+    locationText: interview.locationText,
+    arrivalInstructions: interview.arrivalInstructions,
+    phoneNumber: interview.phoneNumber,
+    phoneCallDirection: interview.phoneCallDirection,
+    candidatePhone: context.candidatePhone,
+    startLine: interview.startAtUtc ? formatStartLine(interview.startAtUtc, interview.timezoneId) : 'the scheduled time',
+  });
   lines.push(`Questions or changes: ${organizerEmail}`);
   return lines;
 }

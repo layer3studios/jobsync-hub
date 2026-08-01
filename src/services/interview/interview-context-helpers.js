@@ -45,6 +45,7 @@ export async function buildInterviewEmailContext(interview, deps = {}) {
     postingTitle: posting.title,
     candidateName: contact.fullName || contact.email,
     candidateEmail: contact.email,
+    candidatePhone: contact.phone ?? null, // phone-mode "we call you" emails
     organizerName: organizer?.name || company.name,
     organizerEmail: organizer?.email || company.dpoEmail || '',
     interviewerEmails: await resolveInterviewerEmails(interview.interviewerEmployerUserIds, deps),

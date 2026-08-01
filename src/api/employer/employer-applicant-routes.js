@@ -19,8 +19,22 @@ import { signResumeToken, RESUME_URL_TTL_MS } from '../../services/employer/sign
 import {
   createApplicantNoteForApplicant, listApplicantNotesForApplicant,
 } from '../../services/employer/applicant-notes-service.js';
+import { buildCandidateTimeline } from '../../services/employer/candidate-timeline-service.js';
+import { bulkMoveStage } from '../../services/employer/bulk-stage-move-service.js';
 
 const router = Router();
+
+// POST /api/employer/applicants/bulk-move — { applicationIds, targetStageId }.
+// Static path, so it MUST precede the /:applicationId routes (Express matches
+// in declaration order). Per-item ownership checks live in the service.
+router.post('/bulk-move', requireMemberOrHigher, asyncHandler(async (req, res) => {
+  const { applicationIds, targetStageId } = req.body || {};
+  const data = await bulkMoveStage(
+    req.employerCompanyId,
+    { applicationIds, targetStageId, actorUserId: req.employerUser.employerUserId },
+  );
+  res.json({ data });
+}));
 
 // POST /api/employer/applicants/bulk/archive — { applicationIds, reasonId, note? }.
 // MUST precede the /:applicationId routes: Express matches in declaration order, so a
@@ -32,6 +46,12 @@ router.post('/bulk/archive', requireCanArchiveApplicants, asyncHandler(async (re
     req.employerCompanyId, { applicationIds, reasonId, note }, req.employerUser.employerUserId,
   );
   res.json(result);
+}));
+
+// GET /api/employer/applicants/:applicationId/timeline — merged event history.
+router.get('/:applicationId/timeline', requireInterviewerOrHigher, requireEmployerApplicant, asyncHandler(async (req, res) => {
+  const data = await buildCandidateTimeline(req.employerCompanyId, req.application._id);
+  res.json({ data });
 }));
 
 // GET /api/employer/applicants/:applicationId — full detail (D2).
@@ -49,11 +69,12 @@ router.post('/:applicationId/move', requireCanMoveApplicants, requireEmployerApp
   res.json(result);
 }));
 
-// POST /api/employer/applicants/:applicationId/archive — { reasonId, note? }.
+// POST /api/employer/applicants/:applicationId/archive — { reasonId, note?, skipEmail? }.
 router.post('/:applicationId/archive', requireCanArchiveApplicants, requireEmployerApplicant, asyncHandler(async (req, res) => {
-  const { reasonId, note } = req.body || {};
+  const { reasonId, note, skipEmail } = req.body || {};
   const result = await archiveApplicant(
-    req.employerCompanyId, req.application._id, { reasonId, note }, req.employerUser.employerUserId,
+    req.employerCompanyId, req.application._id,
+    { reasonId, note, skipEmail: skipEmail === true }, req.employerUser.employerUserId,
   );
   res.json(result);
 }));

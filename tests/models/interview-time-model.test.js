@@ -47,6 +47,37 @@ test('addTimesForPosting inserts the right count, all available, defaults snapsh
   }
 });
 
+test('meetingUrl priority: per-time link wins over the posting default', async () => {
+  await addTimesForPosting(COMPANY_A, POSTING_1, [
+    { startAtUtc: HOURS(24), meetingUrl: 'https://meet.acme.in/per-date' },
+  ], DEFAULTS);
+  const [row] = await (await interviewTimesCol()).find({ postingId: POSTING_1 }).toArray();
+  assert.equal(row.meetingUrl, 'https://meet.acme.in/per-date');
+});
+
+test('meetingUrl priority: falls back to the posting default when the time has none', async () => {
+  await addTimesForPosting(COMPANY_A, POSTING_1, [{ startAtUtc: HOURS(24), meetingUrl: null }], DEFAULTS);
+  const [row] = await (await interviewTimesCol()).find({ postingId: POSTING_1 }).toArray();
+  assert.equal(row.meetingUrl, 'https://meet.acme.in/x');
+});
+
+test('meetingUrl priority: null when neither the time nor the defaults carry a link', async () => {
+  await addTimesForPosting(COMPANY_A, POSTING_1, [{ startAtUtc: HOURS(24), meetingUrl: null }], {
+    ...DEFAULTS, meetingUrl: null,
+  });
+  const [row] = await (await interviewTimesCol()).find({ postingId: POSTING_1 }).toArray();
+  assert.equal(row.meetingUrl, null); // a draft time with no link yet is valid
+});
+
+test('countAvailableTimesForPosting can require a link (send-time gate)', async () => {
+  await addTimesForPosting(COMPANY_A, POSTING_1, [
+    { startAtUtc: HOURS(24), meetingUrl: 'https://meet.acme.in/a' },
+    { startAtUtc: HOURS(48), meetingUrl: null },
+  ], { ...DEFAULTS, meetingUrl: null });
+  assert.equal(await countAvailableTimesForPosting(COMPANY_A, POSTING_1), 2);
+  assert.equal(await countAvailableTimesForPosting(COMPANY_A, POSTING_1, new Date(), { requireMeetingUrl: true }), 1);
+});
+
 test('DUPLICATE SKIP: same startAtUtc on the same posting silently skips', async () => {
   const sharedStart = HOURS(24);
   const first = await addTimesForPosting(COMPANY_A, POSTING_1, [{ startAtUtc: sharedStart }], DEFAULTS);

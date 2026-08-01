@@ -67,6 +67,30 @@ test('PUT interview-defaults validates and stores the sub-document', async () =>
   assert.equal(bad.body.code, 'INVALID_DURATION');
 });
 
+test('PUT interview-defaults accepts video with NO meetingUrl (per-date link flow)', async () => {
+  const res = await request(buildApp()).put(`${base()}/interview-defaults`).set('Cookie', member.cookie)
+    .send({ mode: 'video', durationMinutes: 45, timezoneId: 'Asia/Kolkata' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.data.interviewDefaults.meetingUrl, null);
+  assert.equal(res.body.data.interviewDefaults.durationMinutes, 45);
+});
+
+test('PUT interview-defaults still rejects a malformed video meetingUrl', async () => {
+  const res = await request(buildApp()).put(`${base()}/interview-defaults`).set('Cookie', member.cookie)
+    .send({ ...DEFAULTS_BODY, meetingUrl: 'meet.acme.in/x' });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, 'INVALID_MEETING_LOCATION');
+});
+
+test('POST interview-times honours a per-time meetingUrl over the default', async () => {
+  await putDefaults();
+  const res = await request(buildApp()).post(`${base()}/interview-times`).set('Cookie', member.cookie)
+    .send({ times: [{ startAtUtc: new Date(Date.now() + 864e5).toISOString(), meetingUrl: 'https://meet.acme.in/per-date' }] });
+  assert.equal(res.status, 201);
+  const list = await request(buildApp()).get(`${base()}/interview-times`).set('Cookie', member.cookie);
+  assert.equal(list.body.data[0].meetingUrl, 'https://meet.acme.in/per-date');
+});
+
 test('POST interview-times inserts, rejects past times and empty arrays', async () => {
   await putDefaults();
   const res = await request(buildApp()).post(`${base()}/interview-times`).set('Cookie', member.cookie)

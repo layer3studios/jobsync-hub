@@ -53,24 +53,27 @@ export async function updateInterviewDefaults(companyId, postingId, defaults, de
 
   validateInterviewMode(defaults.mode);
   validateDurationMinutes(defaults.durationMinutes);
-  const { meetingUrl, locationText } = validateMeetingLocation(defaults.mode, defaults.meetingUrl, defaults.locationText);
+  const details = validateMeetingLocation(defaults.mode, defaults.meetingUrl, defaults.locationText, {
+    phoneNumber: defaults.phoneNumber,
+    phoneCallDirection: defaults.phoneCallDirection,
+    arrivalInstructions: defaults.arrivalInstructions,
+  });
 
   const previous = await getPosting(companyId, postingId);
   if (!previous) return null;
 
   const interviewDefaults = {
-    meetingUrl,
+    ...details, // meetingUrl / locationText / phoneNumber / phoneCallDirection / arrivalInstructions
     durationMinutes: defaults.durationMinutes,
     mode: defaults.mode,
-    locationText,
     timezoneId: defaults.timezoneId || DEFAULT_INTERVIEW_TIMEZONE,
   };
   const posting = await updatePosting(companyId, postingId, { interviewDefaults });
   if (!posting) return null;
 
   const previousMeetingUrl = previous.interviewDefaults?.meetingUrl ?? null;
-  if (meetingUrl && meetingUrl !== previousMeetingUrl) {
-    await resendBookedPoolInvites(companyId, postingId, { ...deps, newMeetingUrl: meetingUrl });
+  if (details.meetingUrl && details.meetingUrl !== previousMeetingUrl) {
+    await resendBookedPoolInvites(companyId, postingId, { ...deps, newMeetingUrl: details.meetingUrl });
   }
   return posting;
 }

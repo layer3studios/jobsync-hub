@@ -32,7 +32,12 @@ function parseFutureTimes(rawTimes) {
     if (Number.isNaN(startAtUtc.getTime()) || startAtUtc <= now) {
       throw new HttpError(400, 'Every time must be a future date', INTERVIEW_ERROR_CODES.INVALID_SLOT);
     }
-    return { startAtUtc };
+    // Per-date link (video). Validated only when present — a time may be
+    // drafted before any link exists.
+    const meetingUrl = typeof entry?.meetingUrl === 'string' && entry.meetingUrl.trim()
+      ? entry.meetingUrl.trim()
+      : null;
+    return { startAtUtc, meetingUrl };
   });
 }
 
@@ -45,6 +50,11 @@ router.put('/:postingId/interview-defaults', requireMemberOrHigher, requireEmplo
     mode: body.mode,
     locationText: body.locationText,
     timezoneId: body.timezoneId,
+    // Type-aware details (phone / in-person); without these a phone-mode save
+    // fails validation on the missing number.
+    phoneNumber: body.phoneNumber,
+    phoneCallDirection: body.phoneCallDirection,
+    arrivalInstructions: body.arrivalInstructions,
   });
   if (!posting) throw new HttpError(404, 'Posting not found', 'POSTING_NOT_FOUND');
   res.json({ data: posting });

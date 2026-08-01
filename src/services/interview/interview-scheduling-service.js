@@ -46,7 +46,11 @@ export async function proposeInterviewForCompany(companyId, applicationId, input
   validateProposedSlots(input.proposedSlots);
   validateInterviewMode(input.mode);
   validateDurationMinutes(input.durationMinutes);
-  const { meetingUrl, locationText } = validateMeetingLocation(input.mode, input.meetingUrl, input.locationText);
+  const details = validateMeetingLocation(input.mode, input.meetingUrl, input.locationText, {
+    phoneNumber: input.phoneNumber,
+    phoneCallDirection: input.phoneCallDirection,
+    arrivalInstructions: input.arrivalInstructions,
+  });
 
   const existing = await listInterviewsForApplication(companyId, applicationId);
   if (existing.some((interview) => ACTIVE_STATUSES.includes(interview.status))) {
@@ -61,8 +65,7 @@ export async function proposeInterviewForCompany(companyId, applicationId, input
     timezoneId: input.timezoneId,
     durationMinutes: input.durationMinutes,
     mode: input.mode,
-    meetingUrl,
-    locationText,
+    ...details, // meetingUrl / locationText / phoneNumber / phoneCallDirection / arrivalInstructions
     interviewerEmployerUserIds: input.interviewerEmployerUserIds ?? [],
   }, actorEmployerUserId);
 

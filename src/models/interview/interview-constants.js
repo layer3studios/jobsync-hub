@@ -27,6 +27,25 @@ export const BOOKING_TOKEN_TTL_DAYS = 7;
 // the slots employers actually propose.
 export const MINIMUM_BOOKING_LEAD_MINUTES = 60;
 
+// Post-interview feedback (Part 1). Four-point scale — no neutral option, so
+// the interviewer must lean one way (mirrors Greenhouse/Lever scorecards).
+export const INTERVIEW_RECOMMENDATIONS = Object.freeze({
+  STRONG_YES: 'strong_yes',
+  YES: 'yes',
+  NO: 'no',
+  STRONG_NO: 'strong_no',
+});
+
+// Optional fields get skipped — feedback is required, with a floor that forces
+// at least one real sentence.
+export const FEEDBACK_TEXT_MINIMUM_LENGTH = 10;
+
+// Phone interviews: who dials whom. Null for video / in-person interviews.
+export const PHONE_CALL_DIRECTIONS = Object.freeze({
+  WE_CALL: 'we_call',
+  CANDIDATE_CALLS: 'candidate_calls',
+});
+
 export const INTERVIEW_ERROR_CODES = Object.freeze({
   INTERVIEW_NOT_FOUND: 'INTERVIEW_NOT_FOUND',
   INVALID_SLOT: 'INVALID_SLOT',
@@ -49,4 +68,11 @@ export const INTERVIEW_ERROR_CODES = Object.freeze({
   NO_INTERVIEW_DEFAULTS: 'NO_INTERVIEW_DEFAULTS',
   POOL_REQUIRES_TIME_ID: 'POOL_REQUIRES_TIME_ID',
   MANUAL_REQUIRES_SLOT_INDEX: 'MANUAL_REQUIRES_SLOT_INDEX',
+  // Post-interview outcome (Part 1)
+  INTERVIEW_NOT_YET: 'INTERVIEW_NOT_YET',
+  INTERVIEW_NOT_SCHEDULED: 'INTERVIEW_NOT_SCHEDULED',
+  INVALID_RECOMMENDATION: 'INVALID_RECOMMENDATION',
+  FEEDBACK_TOO_SHORT: 'FEEDBACK_TOO_SHORT',
+  // Type-aware interviews (phone / in-person details)
+  INVALID_PHONE_DETAILS: 'INVALID_PHONE_DETAILS',
 });

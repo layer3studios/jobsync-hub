@@ -39,6 +39,11 @@ export const AUDIT_EVENTS = Object.freeze({
   INTERVIEW_PROPOSED: 'interview_proposed',
   INTERVIEW_RESCHEDULED: 'interview_rescheduled',
   INTERVIEW_CANCELLED: 'interview_cancelled',
+  // Post-interview lifecycle: feedback and no-show are processing activities on
+  // candidate data; the rejection email is candidate-facing communication.
+  INTERVIEW_COMPLETED: 'interview_completed',
+  INTERVIEW_NO_SHOW: 'interview_no_show',
+  REJECTION_EMAIL_SENT: 'rejection_email_sent',
 });
 
 /** True when `value` is one of the frozen enum's values. */

@@ -80,7 +80,10 @@ export async function addTimesForPosting(companyId, postingId, timesArray, inter
     durationMinutes: interviewDefaults.durationMinutes,
     timezoneId: interviewDefaults.timezoneId,
     mode: interviewDefaults.mode,
-    meetingUrl: interviewDefaults.meetingUrl ?? null,
+    // Link priority: the per-date entry wins, else the posting default, else
+    // null — a draft time with no link yet is valid (it can be filled in
+    // later by saving a default).
+    meetingUrl: entry.meetingUrl ?? interviewDefaults.meetingUrl ?? null,
     locationText: interviewDefaults.locationText ?? null,
     status: INTERVIEW_TIME_STATUSES.AVAILABLE,
     bookedByApplicationId: null,
@@ -128,14 +131,17 @@ export async function listTimesForPosting(companyId, postingId, { statusFilter, 
 }
 
 /** Available future times, for pool-low checks and gating the send button. */
-export async function countAvailableTimesForPosting(companyId, postingId, now = new Date()) {
+export async function countAvailableTimesForPosting(companyId, postingId, now = new Date(), { requireMeetingUrl = false } = {}) {
   const companyOid = toOid(companyId);
   const postingOid = toOid(postingId);
   if (!companyOid || !postingOid) return 0;
-  return (await interviewTimesCol()).countDocuments({
+  const filter = {
     companyId: companyOid,
     postingId: postingOid,
     status: INTERVIEW_TIME_STATUSES.AVAILABLE,
     startAtUtc: { $gt: now },
-  });
+  };
+  // Send-time check: is there a bookable slot that actually carries a link?
+  if (requireMeetingUrl) filter.meetingUrl = { $ne: null };
+  return (await interviewTimesCol()).countDocuments(filter);
 }
