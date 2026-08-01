@@ -113,6 +113,23 @@ export async function listAssignmentsForCompany(companyId, { includeArchived = f
   return collection.find(query).sort({ createdAt: -1 }).toArray();
 }
 
+/**
+ * Batch-fetch assignments by id, tenant-scoped and bounded to the given ids
+ * (§6.5) — mirrors listResumeScoresForJob. Exists so the public company page can
+ * resolve every posting's assignment in ONE query instead of a lookup per job.
+ * An empty list returns [] WITHOUT a round trip. Archived rows are included: the
+ * caller decides, and the public page must keep rendering a task that was
+ * archived after it was attached.
+ */
+export async function listAssignmentsForIds(companyId, assignmentIds = []) {
+  const companyOid = toOid(companyId);
+  if (!companyOid) return [];
+  const assignmentOids = (Array.isArray(assignmentIds) ? assignmentIds : []).map(toOid).filter(Boolean);
+  if (assignmentOids.length === 0) return [];
+  const collection = await assignmentsCol();
+  return collection.find({ companyId: companyOid, _id: { $in: assignmentOids } }).toArray();
+}
+
 /** Fetch one assignment scoped to the company — cross-tenant returns null. */
 export async function getAssignmentForCompany(companyId, assignmentId) {
   const companyOid = toOid(companyId);
