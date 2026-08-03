@@ -7,3 +7,8 @@ deploy.ps1
 data/resumes/
 # Short-lived temp PDFs for the async parse queue
 data/tmp/
+# Candidate take-home uploads — staged (pre-submit) and committed submissions.
+# Same rule as resumes: real candidate files, never in the repo. These directories
+# were created by the assignment feature and were NOT covered until now.
+data/assignment-staging/
+data/assignment-submissions/
