@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { ObjectId } from 'mongodb';
 
 import { dropCollections, closeTestDb } from '../_helpers/test-db.js';
+import { col } from '../../src/Db/connection.js';
 import {
   ensureApplicationIndexes, createApplicationForCompany, getApplicationForCompany,
   listApplicationsForJob, countApplicationsForJob,
@@ -25,6 +26,21 @@ async function reset() {
   await dropCollections('applications');
   await ensureApplicationIndexes();
 }
+
+test('applications_assignmentSubmissionId exists with the $type partial filter', async () => {
+  const applications = await col('applications');
+  const index = (await applications.indexes()).find((i) => i.name === 'applications_assignmentSubmissionId');
+  assert.ok(index, 'applications_assignmentSubmissionId should exist');
+  assert.deepEqual(index.partialFilterExpression, { assignmentSubmissionId: { $type: 'objectId' } });
+  assert.notEqual(index.sparse, true);
+});
+
+test('an application created without a submission carries assignmentSubmissionId: null', async () => {
+  const app = await createApplicationForCompany(COMPANY_A, base(JOB_1));
+  assert.equal(app.assignmentSubmissionId, null);
+  const stored = await getApplicationForCompany(COMPANY_A, app._id);
+  assert.equal(stored.assignmentSubmissionId, null);
+});
 
 test('create + get scoped by companyId', async () => {
   const app = await createApplicationForCompany(COMPANY_A, base(JOB_1));

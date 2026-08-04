@@ -8,7 +8,7 @@ import { col } from '../../src/Db/connection.js';
 import {
   ensurePostingIndexes, generateUniquePostingSlugForCompany, createPostingForCompany,
   listPostingsForCompany, getPostingForCompany, updatePostingForCompany,
-  closePostingForCompany, reopenPostingForCompany,
+  closePostingForCompany, reopenPostingForCompany, toPublicPosting,
 } from '../../src/models/employer/posting-model.js';
 
 function input(overrides = {}) {
@@ -25,6 +25,25 @@ after(async () => { await closeTestDb(); });
 test('ensurePostingIndexes is idempotent', async () => {
   await ensurePostingIndexes();
   await ensurePostingIndexes();
+});
+
+test('jobs_assignmentId_native is partial on BOTH source:native and the objectId $type', async () => {
+  const jobs = await col('jobs');
+  const index = (await jobs.indexes()).find((i) => i.name === 'jobs_assignmentId_native');
+  assert.ok(index, 'jobs_assignmentId_native should exist');
+  assert.deepEqual(index.partialFilterExpression, {
+    source: 'native',
+    assignmentId: { $type: 'objectId' },
+  });
+  assert.notEqual(index.sparse, true);
+});
+
+test('a fresh posting carries assignmentId: null and toPublicPosting surfaces it', async () => {
+  const posting = await createPostingForCompany(new ObjectId(), input(), new ObjectId());
+  assert.equal(posting.assignmentId, null);
+  const publicDoc = toPublicPosting(posting);
+  assert.ok(Object.prototype.hasOwnProperty.call(publicDoc, 'assignmentId'));
+  assert.equal(publicDoc.assignmentId, null);
 });
 
 test('createPostingForCompany sets source=native and postedAt only when active', async () => {

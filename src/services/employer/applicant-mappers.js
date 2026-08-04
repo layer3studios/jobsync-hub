@@ -16,6 +16,7 @@ export function toEmployerApplication(doc) {
     yearsExperience: doc.yearsExperience ?? null,
     appliedAt: doc.appliedAt ?? null,
     lastStageMovedAt: doc.lastStageMovedAt ?? null,
+    assignmentSubmissionId: doc.assignmentSubmissionId?.toString() ?? null,
     archived: doc.archived
       ? {
           at: doc.archived.at ?? null,

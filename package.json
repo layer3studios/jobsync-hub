@@ -9,6 +9,7 @@
     "scrape": "node src/tasks/runScraper.js",
     "validate": "node src/tasks/runValidator.js",
     "match": "node src/tasks/runMatcher.js",
+    "audit:assignments": "node src/scripts/audit-assignments.js",
     "migrate:auto-tags": "node scripts/migrate-auto-tags.js",
     "migrate:clean-descriptions": "node scripts/migrate-clean-descriptions.js",
     "test:backend": "node --test --test-concurrency=1 \"tests/**/*.test.js\"",

@@ -6,3 +6,5 @@ export * from './stage-change-model.js';
 export * from './applicant-note-model.js';
 export * from './resume-file-model.js';
 export * from './resume-score-model.js';
+export * from './assignment-submission-model.js';
+export * from './assignment-review-model.js';

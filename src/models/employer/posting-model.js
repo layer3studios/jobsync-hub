@@ -31,6 +31,15 @@ export async function ensurePostingIndexes() {
     { companyId: 1, source: 1, status: 1 },
     { partialFilterExpression: { source: NATIVE }, name: 'jobs_companyId_source_status_native' },
   );
+  // "Which native postings use this assignment." The $type clause keeps the explicit
+  // nulls out of the index; a query must repeat source:'native' to use it.
+  await collection.createIndex(
+    { assignmentId: 1 },
+    {
+      partialFilterExpression: { source: NATIVE, assignmentId: { $type: 'objectId' } },
+      name: 'jobs_assignmentId_native',
+    },
+  );
 }
 
 /** True when a native posting already owns this slug within the company. */
@@ -94,6 +103,7 @@ export async function createPostingForCompany(companyId, input, createdByEmploye
       salaryMax: input.salaryMax ?? null,
       salaryCurrency: 'INR',
       status,
+      assignmentId: null,
       postedAt: status === 'active' ? now : null,
       createdAt: now,
       updatedAt: now,
@@ -140,6 +150,18 @@ export async function getActivePostingBySlugForCompany(companyId, slug) {
   return collection.findOne({ companyId: companyOid, slug, source: NATIVE, status: 'active' });
 }
 
+/**
+ * Fetch a native posting by slug within a company at ANY status. Exists so the
+ * apply path can tell "this role closed while you were working on it" apart from
+ * "this slug never existed" — the active-only lookup collapses both into a 404.
+ */
+export async function getPostingBySlugForCompany(companyId, slug) {
+  const companyOid = toOid(companyId);
+  if (!companyOid || typeof slug !== 'string' || !slug) return null;
+  const collection = await postingsCol();
+  return collection.findOne({ companyId: companyOid, slug, source: NATIVE });
+}
+
 /** List a company's ACTIVE native postings for the public company page. */
 export async function listActivePostingsForCompany(companyId) {
   const companyOid = toOid(companyId);
@@ -169,6 +191,28 @@ export async function updatePostingForCompany(companyId, postingId, patch) {
   );
 }
 
+/**
+ * Attach or detach the take-home assignment on one native posting. Deliberately
+ * NOT routed through updatePostingForCompany: that helper carries postedAt
+ * stamping tied to status transitions, and attaching an assignment has nothing to
+ * do with status. toOid(null) is null, so detach needs no separate branch.
+ *
+ * Filters on source:'native' like every other read here, so a scraped ATS job
+ * (shared `jobs` collection, PascalCase, no companyId) can never be mutated.
+ * Returns the updated doc, or null on a cross-tenant / scraped / missing id.
+ */
+export async function setPostingAssignmentForCompany(companyId, postingId, assignmentId, { session } = {}) {
+  const companyOid = toOid(companyId);
+  const postingOid = toOid(postingId);
+  if (!companyOid || !postingOid) return null;
+  const collection = await postingsCol();
+  return collection.findOneAndUpdate(
+    { _id: postingOid, source: NATIVE, companyId: companyOid },
+    { $set: { assignmentId: toOid(assignmentId), updatedAt: new Date() } },
+    { returnDocument: 'after', session },
+  );
+}
+
 export function closePostingForCompany(companyId, postingId) {
   return updatePostingForCompany(companyId, postingId, { status: 'closed' });
 }
@@ -192,6 +236,7 @@ export function toPublicPosting(doc) {
     salaryMax: doc.salaryMax ?? null,
     salaryCurrency: doc.salaryCurrency,
     status: doc.status,
+    assignmentId: doc.assignmentId?.toString() ?? null,
     postedAt: doc.postedAt ?? null,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
