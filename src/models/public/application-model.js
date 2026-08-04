@@ -21,6 +21,16 @@ export async function ensureApplicationIndexes() {
   await collection.createIndex({ contactId: 1 }, { name: 'applications_contactId' });
   await collection.createIndex({ stageId: 1 }, { name: 'applications_stageId' });
   await collection.createIndex({ companyId: 1, jobId: 1, appliedAt: -1 }, { name: 'applications_companyId_jobId_appliedAt' });
+  // Reverse lookup from a submission back to its application. Partial on the $type
+  // so the explicit nulls most applications carry are never indexed (never sparse:
+  // sparse skips MISSING fields, not explicit nulls).
+  await collection.createIndex(
+    { assignmentSubmissionId: 1 },
+    {
+      partialFilterExpression: { assignmentSubmissionId: { $type: 'objectId' } },
+      name: 'applications_assignmentSubmissionId',
+    },
+  );
 }
 
 /** Experience buckets applied at query time on application.yearsExperience.
@@ -120,13 +130,23 @@ export async function listApplicationsForJobFiltered(companyId, jobId, filters =
   return collection.aggregate(pipeline).toArray();
 }
 
-/** Insert an application for a company. Stamps appliedAt + timestamps. */
-export async function createApplicationForCompany(companyId, data) {
+/**
+ * Insert an application for a company. Stamps appliedAt + timestamps.
+ *
+ * Takes an optional { session } so the apply transaction can enrol this write, and
+ * honours a caller-supplied data._id. The explicit _id exists because an assignment
+ * application and its submission reference each other: both ids are generated
+ * before the transaction opens, which resolves the circular reference AND makes a
+ * retried callback write the same documents instead of orphaning the first attempt.
+ * Existing callers pass neither and behave exactly as before.
+ */
+export async function createApplicationForCompany(companyId, data, { session } = {}) {
   const companyOid = toOid(companyId);
   if (!companyOid) throw new Error('createApplicationForCompany: invalid companyId');
   const collection = await applicationsCol();
   const now = new Date();
   const doc = {
+    ...(data._id ? { _id: toOid(data._id) } : {}),
     companyId: companyOid,
     jobId: toOid(data.jobId),
     contactId: toOid(data.contactId),
@@ -135,6 +155,7 @@ export async function createApplicationForCompany(companyId, data) {
     source: data.source ?? 'apply_page',
     sourceDetail: data.sourceDetail ?? null,
     resumeFileId: toOid(data.resumeFileId),
+    assignmentSubmissionId: toOid(data.assignmentSubmissionId),
     coverNote: data.coverNote ?? null,
     yearsExperience: data.yearsExperience ?? null,
     appliedAt: now,
@@ -142,6 +163,12 @@ export async function createApplicationForCompany(companyId, data) {
     consent: {
       dpdpAcceptedAt: data.consent?.dpdpAcceptedAt ?? null,
       futureOpportunitiesConsent: Boolean(data.consent?.futureOpportunitiesConsent),
+      // DPDP evidence for flows that collect more than the base application (the
+      // assignment path records files, notes and profile links). Added only when
+      // supplied, so a plain apply keeps the exact consent shape it always had —
+      // this projection is an allowlist, and anything not named here is dropped.
+      ...(data.consent?.dataItems ? { dataItems: data.consent.dataItems } : {}),
+      ...(data.consent?.noticeVersion ? { noticeVersion: data.consent.noticeVersion } : {}),
     },
     applicantIp: data.applicantIp ?? null,
     userAgent: data.userAgent ?? null,
@@ -149,7 +176,7 @@ export async function createApplicationForCompany(companyId, data) {
     createdAt: now,
     updatedAt: now,
   };
-  const result = await collection.insertOne(doc);
+  const result = await collection.insertOne(doc, { session });
   return { ...doc, _id: result.insertedId };
 }
 

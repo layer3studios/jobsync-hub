@@ -54,6 +54,35 @@ const deviceBuckets = (s) =>
   "SELECT coalesce(properties.$device_type, 'unknown') AS device, count() AS value "
   + `FROM events WHERE event = '${PAGEVIEW}' AND timestamp >= ${at(s)} GROUP BY device ORDER BY value DESC`;
 
+/**
+ * Take-home abandonment, as FOUR COUNTS IN ONE ROW — not a PostHog funnel.
+ *
+ * The apply flow is anonymous: person_profiles is 'identified_only', so a candidate
+ * who views a form and submits it has no stable person_id linking the two events. A
+ * funnel would silently undercount every conversion and make take-homes look far
+ * worse than they are. Two counts and a division do not have that problem.
+ *
+ * Both populations come from the SAME pair of events, split on the hasAssignment
+ * property, so the comparison is apples-to-apples by construction: the plain-posting
+ * ratio is the control group for the assignment one. Reporting either number alone
+ * would be meaningless — a 40% completion rate is good or catastrophic depending
+ * entirely on what plain postings do in the same week.
+ *
+ * Column order matters; the route layer reads it positionally.
+ */
+const assignmentAbandonment = (s) =>
+  'SELECT '
+  + "countIf(event = 'apply_started' AND properties.hasAssignment = true), "
+  + "countIf(event = 'apply_submitted' AND properties.hasAssignment = true), "
+  + "countIf(event = 'apply_started' AND properties.hasAssignment = false), "
+  + "countIf(event = 'apply_submitted' AND properties.hasAssignment = false) "
+  + `FROM events WHERE timestamp >= ${at(s)}`;
+
+/** Positional column labels for assignment_abandonment, mirroring FUNNEL_STAGES. */
+export const ABANDONMENT_COLUMNS = [
+  'assignmentViewed', 'assignmentSubmitted', 'plainViewed', 'plainSubmitted',
+];
+
 // Ordered stage lists so the route layer can label a funnel's one-row result.
 export const FUNNEL_STAGES = {
   seeker_conversion_funnel: ['jobs_list_viewed', 'job_detail_viewed', 'apply_started', 'apply_submitted'],
@@ -99,6 +128,13 @@ export const QUERIES = {
   // Team invites
   invites_sent: (s) => countEvent('team_invite_sent', s),
   invites_accepted: (s) => countEvent('team_invite_accepted', s),
+
+  // Take-home assignments (Chunk 9). The only PostHog-backed assignment metric —
+  // everything else in §5.1 is a Mongo fact (assignment-analytics-service.js).
+  assignment_abandonment: (s) => assignmentAbandonment(s),
+  assignments_created: (s) => countEvent('assignment_created', s),
+  assignment_reviews_submitted: (s) => countEvent('assignment_review_submitted', s),
+  assignment_review_conflicts: (s) => countEvent('assignment_review_conflicted', s),
 
   // Traffic sources
   traffic_by_referrer: (s) => referrerBuckets(s),

@@ -10,3 +10,9 @@ data/tmp/
 
 ktopjobsync-hubbackend
 *jobsync-hub*backend
+
+# Candidate take-home uploads — staged (pre-submit) and committed submissions.
+# Same rule as resumes: real candidate files, never in the repo. These directories
+# were created by the assignment feature and were NOT covered until now.
+data/assignment-staging/
+data/assignment-submissions/

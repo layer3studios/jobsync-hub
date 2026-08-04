@@ -19,6 +19,7 @@ import {
   ensurePostingIndexes,
   ensureCompanyMemberIndexes,
   ensureCompanyInviteIndexes,
+  ensureAssignmentIndexes,
   ensureSavedViewIndexes,
 } from './models/employer/index.js';
 
@@ -52,6 +53,8 @@ import newsRouter from './api/seeker/news-routes.js';
 import { createEmployerAuthRouter } from './api/employer/employer-auth-routes.js';
 import employerCompanyRouter from './api/employer/employer-company-routes.js';
 import employerPostingsRouter from './api/employer/employer-postings-routes.js';
+import employerAssignmentsRouter from './api/employer/employer-assignments-routes.js';
+import employerAssignmentReviewsRouter from './api/employer/employer-assignment-reviews-routes.js';
 import employerApplicantRouter from './api/employer/employer-applicant-routes.js';
 import employerSavedViewsRouter from './api/employer/employer-saved-views-routes.js';
 import employerStagesRouter from './api/employer/employer-stages-routes.js';
@@ -62,6 +65,14 @@ import employerDashboardRouter from './api/employer/employer-dashboard-routes.js
 import publicInterviewRouter from './api/public/public-interview-routes.js';
 import publicInviteRouter from './api/public/public-invite-routes.js';
 import resumeDownloadRouter from './api/public/resume-download-route.js';
+import assignmentStagingRouter from './api/public/assignment-staging-routes.js';
+import assignmentDownloadRouter from './api/public/assignment-download-route.js';
+import {
+  ensureAssignmentDirectories, sweepOldStagedFiles,
+} from './services/public/assignment-storage-service.js';
+import {
+  reconcileAssignmentFiles, collectReferencedStagingPaths,
+} from './services/public/assignment-file-reconciler.js';
 import dpdpRouter from './api/dpdp/dpdp-routes.js';
 import seekerResumeRouter from './api/seeker/seeker-resume-routes.js';
 import seekerProfileRouter from './api/seeker/seeker-profile-routes.js';
@@ -71,6 +82,7 @@ import {
   ensureContactIndexes, ensureApplicationIndexes,
   ensureStageChangeIndexes, ensureResumeFileIndexes, ensureResumeScoreIndexes,
   ensureApplicantNoteIndexes,
+  ensureAssignmentSubmissionIndexes, ensureAssignmentReviewIndexes,
 } from './models/public/index.js';
 import { ensureResumeDirectory } from './services/public/resume-storage-service.js';
 import { ensureResumeParseJobIndexes } from './models/seeker/resume-parse-job-model.js';
@@ -121,6 +133,8 @@ app.use('/api/employer/auth', createEmployerAuthRouter());
 app.use('/api/employer/company', requireEmployer, employerCompanyRouter);
 app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerPostingsRouter);
 app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerSavedViewsRouter);
+app.use('/api/employer/assignments', requireEmployer, requireEmployerCompany, employerAssignmentsRouter);
+app.use('/api/employer/assignment-reviews', requireEmployer, requireEmployerCompany, employerAssignmentReviewsRouter);
 app.use('/api/employer/applicants', requireEmployer, requireEmployerCompany, employerApplicantRouter);
 app.use('/api/employer/stages', requireEmployer, requireEmployerCompany, employerStagesRouter);
 app.use('/api/employer/archive-reasons', requireEmployer, requireEmployerCompany, employerArchiveReasonsRouter);
@@ -134,6 +148,8 @@ app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerI
 app.use('/api/dpdp', dpdpRouter); // per-route guards (D9) — /notice-version is public
 app.use('/api/public/resume-download', resumeDownloadRouter); // signed-token PDF stream (before the apply catch-all)
 app.use('/api/public/invites', publicInviteRouter); // unauthenticated invite preview (before the apply catch-all)
+app.use('/api/public/assignment-files', assignmentStagingRouter); // staging upload (before the apply catch-all)
+app.use('/api/public/assignment-download', assignmentDownloadRouter); // signed-token file stream (before the apply catch-all)
 app.use('/api/public', publicInterviewRouter); // unauthenticated interview booking (before the apply catch-all)
 app.use('/api/public', publicApplyRouter); // unauthenticated candidate apply pages
 
@@ -165,6 +181,9 @@ const server = app.listen(PORT, async () => {
     await ensureApplicationIndexes();
     await ensureStageChangeIndexes();
     await ensureApplicantNoteIndexes();
+    await ensureAssignmentIndexes();
+    await ensureAssignmentSubmissionIndexes();
+    await ensureAssignmentReviewIndexes();
     await ensureResumeFileIndexes();
     await ensureResumeScoreIndexes();
     await ensureResumeParseJobIndexes();
@@ -172,6 +191,22 @@ const server = app.listen(PORT, async () => {
     await ensureInterviewTimeIndexes();
     ensureResumeDirectory();
     ensureTmpDirectory();
+    ensureAssignmentDirectories();
+    // Recover files whose submission committed but whose rename never ran (crash
+    // between the two halves of that dual write).
+    const { promoted, missing } = await reconcileAssignmentFiles();
+    console.log(`[assignments] reconciled ${promoted} files, ${missing} missing`);
+    const swept = sweepOldStagedFiles({ referenced: await collectReferencedStagingPaths() });
+    console.log(`[assignments] swept ${swept} stale staged files`);
+    // Staged uploads that were never submitted are reclaimed daily; a single boot
+    // sweep would leave a long-lived process accumulating them indefinitely. The
+    // referenced set is recomputed each time — a file committed since the last
+    // sweep must never be treated as an orphan just because it is old.
+    setInterval(() => {
+      collectReferencedStagingPaths()
+        .then((referenced) => sweepOldStagedFiles({ referenced }))
+        .catch((err) => console.warn('[assignments] sweep failed:', err.message));
+    }, 24 * 60 * 60 * 1000).unref();
 
     // Gemma is optional — the server boots fine without keys. initGemma() builds
     // both pools and logs their status itself, including the no-keys case (C10).

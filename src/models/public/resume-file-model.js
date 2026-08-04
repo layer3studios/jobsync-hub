@@ -36,13 +36,17 @@ export async function createResumeFile(data) {
   return { ...doc, _id: result.insertedId };
 }
 
-/** Link a resume-file record to its application once the app is created. */
-export async function attachResumeFileToApplication(resumeFileId, applicationId) {
+/**
+ * Link a resume-file record to its application once the app is created. Takes an
+ * optional { session } so the apply transaction can enrol this write; existing
+ * callers pass nothing and are unaffected.
+ */
+export async function attachResumeFileToApplication(resumeFileId, applicationId, { session } = {}) {
   const fileOid = toOid(resumeFileId);
   const appOid = toOid(applicationId);
   if (!fileOid || !appOid) return;
   const collection = await resumeFilesCol();
-  await collection.updateOne({ _id: fileOid }, { $set: { applicationId: appOid } });
+  await collection.updateOne({ _id: fileOid }, { $set: { applicationId: appOid } }, { session });
 }
 
 /** Fetch the resume-file record for an application. */

@@ -10,6 +10,7 @@ import { asyncHandler } from '../../middleware/async-handler-middleware.js';
 import { HttpError } from '../../middleware/error-handler-middleware.js';
 import { createAnalyticsService } from '../../services/admin/analytics-service.js';
 import { FUNNEL_STAGES } from '../../services/admin/analytics-queries.js';
+import { getAssignmentStats } from '../../services/admin/assignment-analytics-service.js';
 import {
   POSTHOG_HOST, POSTHOG_PROJECT_ID, POSTHOG_PERSONAL_API_KEY, ANALYTICS_CACHE_TTL_MS,
 } from '../../env.js';
@@ -124,6 +125,48 @@ export function createAdminAnalyticsRouter(options = {}) {
   router.get('/traffic', withService(
     ['traffic_by_referrer', 'traffic_by_device'],
     (r) => ({ byReferrer: buckets(r.traffic_by_referrer, 'bucket'), byDevice: buckets(r.traffic_by_device, 'device') }),
+  ));
+
+  // ── Take-home assignments: TWO endpoints, TWO failure modes, one page ──────
+  //
+  // /assignments reads Mongo and has no PostHog dependency, so it answers even when
+  // POSTHOG_PERSONAL_API_KEY is absent — deliberately NOT wrapped in withService.
+  // /assignments/funnel is HogQL and 503s like every other analytics route. The
+  // admin page renders the first block regardless and degrades only the second.
+  const assignmentsStatsService = options.assignmentStatsService ?? getAssignmentStats;
+
+  router.get('/assignments', asyncHandler(async (_req, res) => {
+    const result = await assignmentsStatsService();
+    res.json({ result });
+  }));
+
+  router.get('/assignments/funnel', withService(
+    ['assignment_abandonment', 'assignments_created', 'assignment_reviews_submitted',
+      'assignment_review_conflicts'],
+    (r) => {
+      const [assignmentViewed = 0, assignmentSubmitted = 0, plainViewed = 0, plainSubmitted = 0] =
+        (r.assignment_abandonment?.[0] ?? []).map(Number);
+      // RAW COUNTS ALONGSIDE THE RATIO, always. A 0.40 completion rate off 5 views
+      // is noise; off 5,000 it is the feature's verdict. Handing back only the ratio
+      // hides which one an admin is looking at. A null ratio means "no sample",
+      // which is honest in a way that 0 is not.
+      const ratio = (submitted, viewed) => (viewed > 0 ? Number((submitted / viewed).toFixed(4)) : null);
+      return {
+        assignment: {
+          viewed: assignmentViewed,
+          submitted: assignmentSubmitted,
+          completionRatio: ratio(assignmentSubmitted, assignmentViewed),
+        },
+        plain: {
+          viewed: plainViewed,
+          submitted: plainSubmitted,
+          completionRatio: ratio(plainSubmitted, plainViewed),
+        },
+        assignmentsCreated: scalar(r.assignments_created),
+        reviewsSubmitted: scalar(r.assignment_reviews_submitted),
+        reviewConflicts: scalar(r.assignment_review_conflicts),
+      };
+    },
   ));
 
   return router;

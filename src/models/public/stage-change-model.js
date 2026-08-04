@@ -20,8 +20,13 @@ export async function ensureStageChangeIndexes() {
   await collection.createIndex({ applicationId: 1, movedAt: -1 }, { name: 'stage_changes_application_movedAt' });
 }
 
-/** Record a stage move. fromStageId null = initial placement. */
-export async function createStageChange(data) {
+/**
+ * Record a stage move. fromStageId null = initial placement. Takes an optional
+ * { session } so the apply transaction can enrol this write; every existing caller
+ * passes nothing and is unaffected (col() binds no session, so an op without one
+ * would silently commit outside the transaction).
+ */
+export async function createStageChange(data, { session } = {}) {
   const collection = await stageChangesCol();
   const doc = {
     applicationId: toOid(data.applicationId),
@@ -31,7 +36,7 @@ export async function createStageChange(data) {
     movedAt: data.movedAt ?? new Date(),
     note: data.note ?? null,
   };
-  const result = await collection.insertOne(doc);
+  const result = await collection.insertOne(doc, { session });
   return { ...doc, _id: result.insertedId };
 }
 
