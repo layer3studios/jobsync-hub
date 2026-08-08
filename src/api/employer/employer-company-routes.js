@@ -12,6 +12,7 @@ import { getCompanyById, updateCompanyForOwner, toPublicCompany } from '../../mo
 import { onboardEmployerCompany } from '../../services/employer/onboarding-service.js';
 import {
   validateName, validateOptionalUrl, validateRetentionDays, validateDpoEmail, validateTagline,
+  validateAbout, validateSocialLinks, validateRejectionTemplates,
 } from '../../services/employer/company-validators.js';
 import {
   storeLogoFile, deleteLogoFile, publicLogoUrlFor,
@@ -25,7 +26,8 @@ const router = Router();
 // logoUrl is patchable so the UI can CLEAR a logo (null); it is never set to a
 // caller-supplied string — the upload route below owns writing a real value.
 const PATCHABLE_FIELDS = [
-  'name', 'tagline', 'website', 'retentionDays', 'privacyPolicyUrl', 'dpoEmail', 'logoUrl',
+  'name', 'tagline', 'about', 'socialLinks', 'website', 'retentionDays',
+  'privacyPolicyUrl', 'dpoEmail', 'logoUrl', 'rejectionEmailTemplates',
 ];
 
 // Memory storage, never disk: the buffer is validated (type + size) before
@@ -76,6 +78,11 @@ function buildCompanyPatch(body) {
   const patch = {};
   if ('name' in body) patch.name = validateName(body.name);
   if ('tagline' in body) patch.tagline = validateTagline(body.tagline);
+  if ('about' in body) patch.about = validateAbout(body.about);
+  if ('socialLinks' in body) patch.socialLinks = validateSocialLinks(body.socialLinks);
+  if ('rejectionEmailTemplates' in body) {
+    patch.rejectionEmailTemplates = validateRejectionTemplates(body.rejectionEmailTemplates);
+  }
   // Clear-only. Accepting an arbitrary string here would let any Owner point the
   // careers-page <img> at a URL of their choosing; a real logo can only be set by
   // uploading bytes to POST /logo below.
@@ -114,6 +121,20 @@ router.get('/', attachCompanyForRole, requireInterviewerOrHigher, asyncHandler(a
   const company = await getCompanyById(user.companyId);
   if (!company) throw new HttpError(404, 'No company', 'NO_COMPANY');
   res.json({ company: toPublicCompany(company) });
+}));
+
+/**
+ * GET /api/employer/company/rejection-templates — the company's custom rejection
+ * bodies, or {} when none are set.
+ *
+ * A separate route rather than a field on toPublicCompany: what a company writes
+ * when rejecting someone is internal, and toPublicCompany is the shape the careers
+ * surface is modelled on. Owner+ matches who is allowed to edit them.
+ */
+router.get('/rejection-templates', attachCompanyForRole, requireOwnerOrHigher, asyncHandler(async (req, res) => {
+  const company = await getCompanyById(req.employerCompanyId);
+  if (!company) throw new HttpError(404, 'No company', 'NO_COMPANY');
+  res.json({ rejectionEmailTemplates: company.rejectionEmailTemplates ?? {} });
 }));
 
 // PATCH /api/employer/company — update the caller's own company only. Owner+.

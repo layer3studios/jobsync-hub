@@ -104,7 +104,12 @@ export async function createPostingForCompany(companyId, input, createdByEmploye
       salaryCurrency: 'INR',
       status,
       assignmentId: null,
+      // Deadline after which the apply endpoint refuses new applications, and
+      // whether the nightly task should close the posting when it passes.
+      applicationDeadline: input.applicationDeadline ?? null,
+      autoCloseOnDeadline: input.autoCloseOnDeadline === true,
       postedAt: status === 'active' ? now : null,
+      closedAt: status === 'closed' ? now : null,
       createdAt: now,
       updatedAt: now,
       createdByEmployerUserId: toOid(createdByEmployerUserId),
@@ -183,6 +188,10 @@ export async function updatePostingForCompany(companyId, postingId, patch) {
   if (!current) return null;
   const setOps = { ...patch, updatedAt: new Date() };
   if (patch.status === 'active' && current.postedAt == null) setOps.postedAt = new Date();
+  // Symmetric with postedAt: stamp when the posting actually transitions to closed,
+  // and clear it on reopen so the field always describes the CURRENT closure.
+  if (patch.status === 'closed' && current.status !== 'closed') setOps.closedAt = new Date();
+  if (patch.status === 'active' && current.status === 'closed') setOps.closedAt = null;
   const collection = await postingsCol();
   return collection.findOneAndUpdate(
     { _id: postingOid, source: NATIVE, companyId: companyOid },
@@ -237,7 +246,10 @@ export function toPublicPosting(doc) {
     salaryCurrency: doc.salaryCurrency,
     status: doc.status,
     assignmentId: doc.assignmentId?.toString() ?? null,
+    applicationDeadline: doc.applicationDeadline ?? null,
+    autoCloseOnDeadline: doc.autoCloseOnDeadline === true,
     postedAt: doc.postedAt ?? null,
+    closedAt: doc.closedAt ?? null,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };

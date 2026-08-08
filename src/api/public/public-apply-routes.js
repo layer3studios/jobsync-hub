@@ -42,15 +42,22 @@ function companySummary(company) {
   return {
     name: company.name,
     tagline: company.tagline ?? null,
+    about: company.about ?? null,
+    socialLinks: company.socialLinks ?? null,
     slug: company.slug,
     website: company.website ?? null,
     logoUrl: company.logoUrl ?? null,
   };
 }
+// workplaceType and postedAt are here so the careers page can render a workplace
+// badge and a posted-recency value without a second request per job. Both already
+// exist on every native posting; they were simply never projected.
 function jobSummary(posting) {
   return {
     id: posting._id.toString(), slug: posting.slug, title: posting.title,
     location: posting.location, employmentType: posting.employmentType,
+    workplaceType: posting.workplaceType ?? null,
+    postedAt: posting.postedAt ?? null,
   };
 }
 
