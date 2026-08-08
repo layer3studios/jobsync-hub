@@ -65,6 +65,7 @@ import employerDashboardRouter from './api/employer/employer-dashboard-routes.js
 import publicInterviewRouter from './api/public/public-interview-routes.js';
 import publicInviteRouter from './api/public/public-invite-routes.js';
 import resumeDownloadRouter from './api/public/resume-download-route.js';
+import companyLogoRouter from './api/public/company-logo-route.js';
 import assignmentStagingRouter from './api/public/assignment-staging-routes.js';
 import assignmentDownloadRouter from './api/public/assignment-download-route.js';
 import {
@@ -85,6 +86,7 @@ import {
   ensureAssignmentSubmissionIndexes, ensureAssignmentReviewIndexes,
 } from './models/public/index.js';
 import { ensureResumeDirectory } from './services/public/resume-storage-service.js';
+import { ensureLogoDirectory } from './services/employer/logo-storage-service.js';
 import { ensureResumeParseJobIndexes } from './models/seeker/resume-parse-job-model.js';
 import { ensureTmpDirectory } from './services/seeker/resume-tmp-storage.js';
 import { startResumeParseWorker } from './services/seeker/resume-parse-worker.js';
@@ -147,6 +149,7 @@ app.use('/api/employer', requireEmployer, requireEmployerCompany, employerInterv
 app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerInterviewTimesRouter);
 app.use('/api/dpdp', dpdpRouter); // per-route guards (D9) — /notice-version is public
 app.use('/api/public/resume-download', resumeDownloadRouter); // signed-token PDF stream (before the apply catch-all)
+app.use('/api/public/company-logo', companyLogoRouter); // unauthenticated careers-page logo (before the apply catch-all)
 app.use('/api/public/invites', publicInviteRouter); // unauthenticated invite preview (before the apply catch-all)
 app.use('/api/public/assignment-files', assignmentStagingRouter); // staging upload (before the apply catch-all)
 app.use('/api/public/assignment-download', assignmentDownloadRouter); // signed-token file stream (before the apply catch-all)
@@ -190,6 +193,7 @@ const server = app.listen(PORT, async () => {
     await ensureInterviewIndexes();
     await ensureInterviewTimeIndexes();
     ensureResumeDirectory();
+    ensureLogoDirectory();
     ensureTmpDirectory();
     ensureAssignmentDirectories();
     // Recover files whose submission committed but whose rename never ran (crash

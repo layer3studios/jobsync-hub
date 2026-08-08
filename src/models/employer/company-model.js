@@ -73,8 +73,13 @@ export async function createCompany(input, claimedByEmployerUserId) {
     const doc = {
       slug,
       name: input.name,
+      tagline: input.tagline ?? null,
       website: input.website ?? null,
       logoUrl: input.logoUrl ?? null,
+      // Where the bytes actually live on disk. Kept separate from logoUrl — which
+      // is the PUBLIC read URL — because the careers page is unauthenticated and
+      // must never learn a filesystem path. Never projected to any client.
+      logoStoragePath: input.logoStoragePath ?? null,
       plan: 'free',
       claimed: true,
       claimedByEmployerUserId: ownerOid,
@@ -114,6 +119,7 @@ export function toPublicCompany(company) {
     id: company._id.toString(),
     slug: company.slug,
     name: company.name,
+    tagline: company.tagline ?? null,
     website: company.website ?? null,
     logoUrl: company.logoUrl ?? null,
     plan: company.plan,

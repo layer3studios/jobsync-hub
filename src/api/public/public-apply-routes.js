@@ -39,7 +39,13 @@ const perCompanyLimiter = rateLimit({
 });
 
 function companySummary(company) {
-  return { name: company.name, slug: company.slug, website: company.website ?? null, logoUrl: company.logoUrl ?? null };
+  return {
+    name: company.name,
+    tagline: company.tagline ?? null,
+    slug: company.slug,
+    website: company.website ?? null,
+    logoUrl: company.logoUrl ?? null,
+  };
 }
 function jobSummary(posting) {
   return {
