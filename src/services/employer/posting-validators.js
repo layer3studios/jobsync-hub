@@ -88,3 +88,44 @@ export function validateSalary(min, max) {
   }
   return { salaryMin, salaryMax };
 }
+
+/**
+ * Optional application deadline. Accepts an ISO string or Date; empty/absent → null.
+ *
+ * "Future" is judged against NOW at validation time, which means an edit that does
+ * not touch the deadline can still be rejected once the date has passed. Callers
+ * therefore only validate it when the key is actually present in the body — see
+ * buildPatch in employer-postings-routes.js.
+ */
+export function validateApplicationDeadline(value) {
+  if (value == null || value === '') return null;
+  const parsed = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) {
+    throw new HttpError(400, 'Application deadline must be a valid date', 'INVALID_DEADLINE');
+  }
+  if (parsed.getTime() <= Date.now()) {
+    throw new HttpError(400, 'Application deadline must be in the future', 'INVALID_DEADLINE');
+  }
+  return parsed;
+}
+
+/** Strict boolean — a missing value is false, but a non-boolean is a caller bug. */
+export function validateAutoCloseOnDeadline(value) {
+  if (value == null) return false;
+  if (typeof value !== 'boolean') {
+    throw new HttpError(400, 'autoCloseOnDeadline must be true or false', 'INVALID_AUTO_CLOSE');
+  }
+  return value;
+}
+
+/**
+ * Cross-field rule: auto-close needs a date to close ON. Enforced here rather than
+ * in either single-field validator because neither can see the other.
+ *
+ * Clearing the deadline also clears auto-close: leaving the flag set with no date
+ * would arm a rule that can never fire.
+ */
+export function reconcileDeadlineFields(applicationDeadline, autoCloseOnDeadline) {
+  if (applicationDeadline == null) return { applicationDeadline: null, autoCloseOnDeadline: false };
+  return { applicationDeadline, autoCloseOnDeadline };
+}

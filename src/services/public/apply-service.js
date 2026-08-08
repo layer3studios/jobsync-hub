@@ -178,6 +178,16 @@ export async function processApplication(companySlug, jobSlug, form, resume, met
     throw new HttpError(404, 'This job is no longer accepting applications.', 'POSTING_NOT_FOUND');
   }
 
+  // The posting is still 'active' but its deadline has passed — the nightly
+  // auto-close task has not run yet, or auto-close was never enabled. Either way the
+  // employer said no more applications after this date, so refuse now rather than
+  // accepting one the deadline promised would not be accepted.
+  //
+  // 410 Gone, not 404: the posting exists and the candidate's URL was correct.
+  if (posting.applicationDeadline && new Date(posting.applicationDeadline).getTime() <= Date.now()) {
+    throw new HttpError(410, 'Applications for this position have closed.', 'POSTING_DEADLINE_PASSED');
+  }
+
   // Honeypot: bots fill the hidden field. Respond OK without storing anything (R4).
   if (isHoneypotFilled(form)) return { applicationId: 'ok' };
 

@@ -74,6 +74,12 @@ export async function createCompany(input, claimedByEmployerUserId) {
       slug,
       name: input.name,
       tagline: input.tagline ?? null,
+      about: input.about ?? null,
+      socialLinks: input.socialLinks ?? null,
+      // Per-stage custom rejection bodies. INTERNAL — never projected by
+      // toPublicCompany: what a company says when it rejects someone is not
+      // careers-page content.
+      rejectionEmailTemplates: input.rejectionEmailTemplates ?? null,
       website: input.website ?? null,
       logoUrl: input.logoUrl ?? null,
       // Where the bytes actually live on disk. Kept separate from logoUrl — which
@@ -120,6 +126,8 @@ export function toPublicCompany(company) {
     slug: company.slug,
     name: company.name,
     tagline: company.tagline ?? null,
+    about: company.about ?? null,
+    socialLinks: company.socialLinks ?? null,
     website: company.website ?? null,
     logoUrl: company.logoUrl ?? null,
     plan: company.plan,

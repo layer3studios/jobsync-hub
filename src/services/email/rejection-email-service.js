@@ -17,6 +17,7 @@ import { sendTransactionalEmail as defaultSendEmail } from './send-email-service
 import { buildRejectionApplicationEmail } from './templates/rejection-application-template.js';
 import { buildRejectionPostInterviewEmail } from './templates/rejection-post-interview-template.js';
 import { buildRejectionPositionFilledEmail } from './templates/rejection-position-filled-template.js';
+import { buildCustomRejectionEmail, customBodyFor } from './rejection-template-helpers.js';
 
 const AUDIT_PURPOSE = 'candidate_communication';
 const EMAIL_BATCH_SIZE = 10; // concurrent sends per batch — no N+1, no thundering herd
@@ -62,15 +63,36 @@ export async function sendRejectionEmail(companyId, applicationId, { reason, ski
       companyName: company?.name ?? 'the company',
     };
     const pastInterview = await reachedInterviewStage(companyId, application, listStages);
-    const email = pastInterview
+    const stageKey = pastInterview ? 'postInterview' : 'application';
+    // A company-authored body wins over the built-in one for this stage. Absent or
+    // blank falls through to the default, so the feature is opt-in per stage.
+    const customBody = customBodyFor(company, stageKey);
+    const defaultEmail = pastInterview
       ? buildRejectionPostInterviewEmail(merge)
       : buildRejectionApplicationEmail(merge);
+    const email = customBody
+      ? buildCustomRejectionEmail({
+        body: customBody,
+        // Subject and heading stay the defaults': the subject is what a candidate
+        // sees before opening, and the neutral wording is deliberate.
+        subject: defaultEmail.subject,
+        headingText: pastInterview ? 'Following up on your interview' : 'Update on your application',
+        merge,
+      })
+      : defaultEmail;
 
     const result = await sendEmail({ to: contact.email, ...email });
     await appendAuditEntry({
       event: AUDIT_EVENTS.REJECTION_EMAIL_SENT, actorType: 'system', actorId: null,
       targetType: 'application', targetId: application._id, purpose: AUDIT_PURPOSE,
-      metadata: { template: pastInterview ? 'post_interview' : 'application', reason: reason ?? null, sent: result.sent },
+      metadata: {
+        template: pastInterview ? 'post_interview' : 'application',
+        // Which body was actually sent — the audit trail has to distinguish our
+        // wording from the company's own.
+        custom: customBody != null,
+        reason: reason ?? null,
+        sent: result.sent,
+      },
     });
     return { sent: result.sent };
   } catch (err) {
@@ -113,16 +135,27 @@ export async function sendPositionFilledEmails(companyId, postingId, { excludeAp
       companyId: companyOid, _id: { $in: applications.map((a) => a.contactId).filter(Boolean) },
     }).project({ fullName: 1, email: 1 }).toArray();
 
+    // Resolved once for the whole sweep, not per recipient.
+    const customBody = customBodyFor(company, 'positionFilled');
+
     let sent = 0; let failed = 0;
     for (let i = 0; i < contacts.length; i += EMAIL_BATCH_SIZE) {
       const batch = contacts.slice(i, i + EMAIL_BATCH_SIZE).map(async (contact) => {
         try {
           if (!contact.email) { failed += 1; return; }
-          const email = buildRejectionPositionFilledEmail({
+          const merge = {
             candidateName: contact.fullName || 'there',
             jobTitle: posting.title,
             companyName: company?.name ?? 'the company',
-          });
+          };
+          const email = customBody
+            ? buildCustomRejectionEmail({
+              body: customBody,
+              subject: `Update on the ${merge.jobTitle} position`,
+              headingText: 'Position update',
+              merge,
+            })
+            : buildRejectionPositionFilledEmail(merge);
           const result = await sendEmail({ to: contact.email, ...email });
           if (result.sent) sent += 1; else failed += 1;
         } catch {

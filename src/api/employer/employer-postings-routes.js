@@ -18,6 +18,7 @@ import {
 import {
   validatePostingTitle, validatePostingDescription, validatePostingLocation,
   validateWorkplaceType, validateEmploymentType, validateSalary, validatePostingStatus,
+  validateApplicationDeadline, validateAutoCloseOnDeadline, reconcileDeadlineFields,
 } from '../../services/employer/posting-validators.js';
 import { countApplicationsForJobs } from '../../models/public/application-model.js';
 import { fillPosting } from '../../services/employer/posting-fill-service.js';
@@ -40,13 +41,17 @@ function fireExtraction(posting, { force = false } = {}) {
 const router = Router();
 const PATCHABLE_FIELDS = [
   'title', 'description', 'location', 'workplaceType', 'employmentType',
-  'salaryMin', 'salaryMax', 'status',
+  'salaryMin', 'salaryMax', 'status', 'applicationDeadline', 'autoCloseOnDeadline',
 ];
 
 /** Validate + normalize a create body into the model input shape. */
 function buildCreateInput(body) {
   const status = body.status === undefined ? 'active' : validatePostingStatus(body.status);
   const { salaryMin, salaryMax } = validateSalary(body.salaryMin, body.salaryMax);
+  const deadline = reconcileDeadlineFields(
+    validateApplicationDeadline(body.applicationDeadline),
+    validateAutoCloseOnDeadline(body.autoCloseOnDeadline),
+  );
   return {
     title: validatePostingTitle(body.title),
     description: validatePostingDescription(body.description),
@@ -54,6 +59,8 @@ function buildCreateInput(body) {
     workplaceType: validateWorkplaceType(body.workplaceType),
     employmentType: validateEmploymentType(body.employmentType),
     salaryMin, salaryMax, status,
+    applicationDeadline: deadline.applicationDeadline,
+    autoCloseOnDeadline: deadline.autoCloseOnDeadline,
   };
 }
 
@@ -80,6 +87,20 @@ function buildPatch(body, current) {
     const normalized = validateSalary(min, max);
     patch.salaryMin = normalized.salaryMin;
     patch.salaryMax = normalized.salaryMax;
+  }
+  // Only validated when actually supplied: "must be in the future" is judged
+  // against now, so re-validating an untouched past deadline would block every
+  // unrelated edit to an expired posting.
+  if ('applicationDeadline' in body || 'autoCloseOnDeadline' in body) {
+    const nextDeadline = 'applicationDeadline' in body
+      ? validateApplicationDeadline(body.applicationDeadline)
+      : (current.applicationDeadline ?? null);
+    const nextAutoClose = 'autoCloseOnDeadline' in body
+      ? validateAutoCloseOnDeadline(body.autoCloseOnDeadline)
+      : current.autoCloseOnDeadline === true;
+    const reconciled = reconcileDeadlineFields(nextDeadline, nextAutoClose);
+    patch.applicationDeadline = reconciled.applicationDeadline;
+    patch.autoCloseOnDeadline = reconciled.autoCloseOnDeadline;
   }
   if (Object.keys(patch).length === 0) {
     throw new HttpError(400, 'No valid fields to update', 'EMPTY_PATCH');
