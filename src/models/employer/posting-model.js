@@ -222,6 +222,25 @@ export async function setPostingAssignmentForCompany(companyId, postingId, assig
   );
 }
 
+/**
+ * Hard-delete one native posting. Scoped to the company AND to source:'native', so
+ * a scraped ATS row sharing this collection can never be removed through it.
+ * Returns true when a row was actually deleted.
+ *
+ * Callers enforce the draft/no-applicants rule — this helper deliberately does not,
+ * so the guard lives in one place (the route) rather than being half-checked twice.
+ */
+export async function deletePostingForCompany(companyId, postingId) {
+  const companyOid = toOid(companyId);
+  const postingOid = toOid(postingId);
+  if (!companyOid || !postingOid) return false;
+  const collection = await postingsCol();
+  const result = await collection.deleteOne({
+    _id: postingOid, source: NATIVE, companyId: companyOid,
+  });
+  return result.deletedCount === 1;
+}
+
 export function closePostingForCompany(companyId, postingId) {
   return updatePostingForCompany(companyId, postingId, { status: 'closed' });
 }
