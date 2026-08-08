@@ -210,6 +210,27 @@ export async function countApplicationsForJob(companyId, jobId) {
   return collection.countDocuments({ companyId: companyOid, jobId: jobOid });
 }
 
+/**
+ * Count non-archived applications for many jobs in ONE aggregation, keyed by job
+ * id string. Used by the postings list, which would otherwise fire a countDocuments
+ * per row (N+1). Jobs with no applications are simply absent from the map — callers
+ * default to 0 rather than this padding every id.
+ *
+ * Archived applications are excluded: the list is answering "how many people are
+ * waiting on me", and an archived candidate is not.
+ */
+export async function countApplicationsForJobs(companyId, jobIds) {
+  const companyOid = toOid(companyId);
+  const jobOids = (jobIds ?? []).map(toOid).filter(Boolean);
+  if (!companyOid || jobOids.length === 0) return new Map();
+  const collection = await applicationsCol();
+  const rows = await collection.aggregate([
+    { $match: { companyId: companyOid, jobId: { $in: jobOids }, archived: null } },
+    { $group: { _id: '$jobId', count: { $sum: 1 } } },
+  ]).toArray();
+  return new Map(rows.map((row) => [row._id.toString(), row.count]));
+}
+
 /** Client-safe projection — ids as strings. */
 export function toPublicApplication(doc) {
   return {

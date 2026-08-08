@@ -19,6 +19,8 @@ import {
   validatePostingTitle, validatePostingDescription, validatePostingLocation,
   validateWorkplaceType, validateEmploymentType, validateSalary, validatePostingStatus,
 } from '../../services/employer/posting-validators.js';
+import { countApplicationsForJobs } from '../../models/public/application-model.js';
+import { fillPosting } from '../../services/employer/posting-fill-service.js';
 import { extractAndStoreRequirements } from '../../gemma/background-extractor.js';
 import { listApplicantsForPosting, listApplicantFacetsForPosting } from './employer-applicants-controller.js';
 import { getPostingAssignment, patchPostingAssignment } from './posting-assignment-handlers.js';
@@ -100,7 +102,16 @@ router.get('/', requireInterviewerOrHigher, asyncHandler(async (req, res) => {
   const filter = {};
   if (req.query.status !== undefined) filter.status = validatePostingStatus(req.query.status);
   const postings = await listPostingsForCompany(req.employerCompanyId, filter);
-  res.json({ postings: postings.map(toPublicPosting) });
+  // One grouped count for the whole page, never a query per row.
+  const counts = await countApplicationsForJobs(
+    req.employerCompanyId, postings.map((posting) => posting._id),
+  );
+  res.json({
+    postings: postings.map((posting) => ({
+      ...toPublicPosting(posting),
+      applicantCount: counts.get(posting._id.toString()) ?? 0,
+    })),
+  });
 }));
 
 // GET /api/employer/jobs/:postingId — single posting.
@@ -133,6 +144,19 @@ router.patch('/:postingId/assignment', requireMemberOrHigher, requireEmployerPos
 router.post('/:postingId/close', requireMemberOrHigher, requireEmployerPosting, asyncHandler(async (req, res) => {
   const posting = await closePostingForCompany(req.employerCompanyId, req.posting._id);
   res.json({ posting: toPublicPosting(posting) });
+}));
+
+// POST /api/employer/jobs/:postingId/fill — close + archive everyone still waiting.
+router.post('/:postingId/fill', requireMemberOrHigher, requireEmployerPosting, asyncHandler(async (req, res) => {
+  const result = await fillPosting(
+    req.employerCompanyId, req.posting._id, req.employerUser.employerUserId,
+  );
+  res.json({
+    posting: result.posting ? toPublicPosting(result.posting) : null,
+    closedCount: result.closedCount,
+    archivedCount: result.archivedCount,
+    failedCount: result.failedCount,
+  });
 }));
 
 // POST /api/employer/jobs/:postingId/reopen — status → 'active'.

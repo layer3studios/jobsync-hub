@@ -5,6 +5,7 @@
 import { HttpError } from '../../middleware/error-handler-middleware.js';
 
 const MAXIMUM_URL_LENGTH = 2048;
+const MAXIMUM_TAGLINE_LENGTH = 120;
 const MAXIMUM_EMAIL_LENGTH = 254;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -13,6 +14,24 @@ export function validateName(name) {
   const trimmed = typeof name === 'string' ? name.trim() : '';
   if (trimmed.length < 2 || trimmed.length > 120) {
     throw new HttpError(400, 'Company name must be 2–120 characters', 'INVALID_NAME');
+  }
+  return trimmed;
+}
+
+/**
+ * Optional one-line company tagline, ≤ 120 chars after trimming. Empty, blank or
+ * absent → null, so clearing the field in the UI stores null rather than '' and
+ * the public careers page has exactly one falsy case to render around.
+ */
+export function validateTagline(value) {
+  if (value == null) return null;
+  if (typeof value !== 'string') {
+    throw new HttpError(400, 'Tagline must be text', 'INVALID_TAGLINE');
+  }
+  const trimmed = value.trim();
+  if (trimmed === '') return null;
+  if (trimmed.length > MAXIMUM_TAGLINE_LENGTH) {
+    throw new HttpError(400, 'Tagline must be 120 characters or fewer', 'INVALID_TAGLINE');
   }
   return trimmed;
 }

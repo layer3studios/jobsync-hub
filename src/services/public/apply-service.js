@@ -35,6 +35,7 @@ import {
   validateSeekerNotes,
 } from './assignment-submission-validators.js';
 import { enqueueScoreJob } from './resume-score-queue-service.js';
+import { queueApplicationReceivedEmail } from '../email/application-received-email-service.js';
 
 const MAX_SUBMISSION_FILES = 5;
 const SUBMISSION_REL = 'data/assignment-submissions';
@@ -228,6 +229,13 @@ export async function processApplication(companySlug, jobSlug, form, resume, met
       enqueueScoreJob(application._id, application.companyId, application.jobId)
         .catch((err) => console.warn('[score-queue] enqueue failed:', err.message));
 
+      // Fire-and-forget: the application is committed, so a failed send is logged
+      // and dropped rather than surfaced to the candidate.
+      queueApplicationReceivedEmail({
+        to: clean.email, firstName: clean.firstName,
+        postingTitle: posting.title, companyName: company.name,
+      });
+
       return { applicationId: application._id.toString() };
     }
 
@@ -329,6 +337,13 @@ export async function processApplication(companySlug, jobSlug, form, resume, met
 
     enqueueScoreJob(applicationId, company._id, posting._id)
       .catch((err) => console.warn('[score-queue] enqueue failed:', err.message));
+
+    // After commit only — see the note on the plain path. Never inside the
+    // transaction callback, which may run more than once.
+    queueApplicationReceivedEmail({
+      to: clean.email, firstName: clean.firstName,
+      postingTitle: posting.title, companyName: company.name,
+    });
 
     return { applicationId: applicationId.toString() };
   } catch (err) {
