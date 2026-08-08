@@ -9,11 +9,11 @@ import { asyncHandler } from '../../middleware/async-handler-middleware.js';
 import { HttpError } from '../../middleware/error-handler-middleware.js';
 import { requireEmployerPosting } from '../../middleware/require-employer-posting-middleware.js';
 import {
-  requireInterviewerOrHigher, requireMemberOrHigher,
+  requireInterviewerOrHigher, requireMemberOrHigher, requireOwnerOrHigher,
 } from '../../middleware/require-company-role-middleware.js';
 import {
   createPostingForCompany, listPostingsForCompany, updatePostingForCompany,
-  closePostingForCompany, reopenPostingForCompany, toPublicPosting,
+  closePostingForCompany, toPublicPosting,
 } from '../../models/employer/posting-model.js';
 import {
   validatePostingTitle, validatePostingDescription, validatePostingLocation,
@@ -25,6 +25,7 @@ import { fillPosting } from '../../services/employer/posting-fill-service.js';
 import { extractAndStoreRequirements } from '../../gemma/background-extractor.js';
 import { listApplicantsForPosting, listApplicantFacetsForPosting } from './employer-applicants-controller.js';
 import { getPostingAssignment, patchPostingAssignment } from './posting-assignment-handlers.js';
+import { reopenPosting, deletePosting } from './posting-lifecycle-handlers.js';
 
 /**
  * Fire-and-forget JD extraction; never blocks or fails the HTTP response (D6/D8).
@@ -180,10 +181,10 @@ router.post('/:postingId/fill', requireMemberOrHigher, requireEmployerPosting, a
   });
 }));
 
-// POST /api/employer/jobs/:postingId/reopen — status → 'active'.
-router.post('/:postingId/reopen', requireMemberOrHigher, requireEmployerPosting, asyncHandler(async (req, res) => {
-  const posting = await reopenPostingForCompany(req.employerCompanyId, req.posting._id);
-  res.json({ posting: toPublicPosting(posting) });
-}));
+// POST /api/employer/jobs/:postingId/reopen — status → 'active' (deadline-guarded).
+router.post('/:postingId/reopen', requireMemberOrHigher, requireEmployerPosting, asyncHandler(reopenPosting));
+
+// DELETE /api/employer/jobs/:postingId — Owner+, draft with no applicants only.
+router.delete('/:postingId', requireOwnerOrHigher, requireEmployerPosting, asyncHandler(deletePosting));
 
 export default router;
