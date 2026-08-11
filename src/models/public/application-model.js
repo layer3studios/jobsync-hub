@@ -158,6 +158,10 @@ export async function createApplicationForCompany(companyId, data, { session } =
     assignmentSubmissionId: toOid(data.assignmentSubmissionId),
     coverNote: data.coverNote ?? null,
     yearsExperience: data.yearsExperience ?? null,
+    // Recruiter-applied labels, drawn from the company's candidate_tags library.
+    // Names rather than ids: a tag is the word a recruiter reads, and the library
+    // keeps those words canonical (see candidate-tag-model).
+    tags: Array.isArray(data.tags) ? data.tags : [],
     appliedAt: now,
     lastStageMovedAt: now,
     consent: {
@@ -241,6 +245,24 @@ export function toPublicApplication(doc) {
     source: doc.source,
     coverNote: doc.coverNote ?? null,
     yearsExperience: doc.yearsExperience ?? null,
+    tags: doc.tags ?? [],
     appliedAt: doc.appliedAt,
   };
+}
+
+/**
+ * Replace an application's tag list. Scoped to the company (§6.5) — the names are
+ * already validated against the company's library by the caller. Returns the
+ * updated doc, or null when the application is missing or belongs to another tenant.
+ */
+export async function setApplicationTags(companyId, applicationId, tags) {
+  const companyOid = toOid(companyId);
+  const appOid = toOid(applicationId);
+  if (!companyOid || !appOid) return null;
+  const collection = await applicationsCol();
+  return collection.findOneAndUpdate(
+    { _id: appOid, companyId: companyOid },
+    { $set: { tags, updatedAt: new Date() } },
+    { returnDocument: 'after' },
+  );
 }

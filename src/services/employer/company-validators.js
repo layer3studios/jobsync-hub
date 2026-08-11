@@ -142,6 +142,24 @@ export function validateRetentionDays(value) {
   return value;
 }
 
+/**
+ * Days of inactivity after which a candidate is auto-archived. null DISABLES the
+ * feature and is the default — a company opts in explicitly. The floor of 7 days
+ * exists because anything shorter archives people who are simply being considered
+ * over a long weekend.
+ */
+export function validateAutoArchiveStaleDays(value) {
+  if (value == null) return null;
+  if (!Number.isInteger(value) || value < 7 || value > 90) {
+    throw new HttpError(
+      400,
+      'Auto-archive must be between 7 and 90 days, or off',
+      'INVALID_AUTO_ARCHIVE_DAYS',
+    );
+  }
+  return value;
+}
+
 /** Optional grievance-officer email ≤ 254 chars. Empty/absent → null. */
 export function validateDpoEmail(value) {
   if (value == null || value === '') return null;

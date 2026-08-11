@@ -13,6 +13,7 @@ import { onboardEmployerCompany } from '../../services/employer/onboarding-servi
 import {
   validateName, validateOptionalUrl, validateRetentionDays, validateDpoEmail, validateTagline,
   validateAbout, validateSocialLinks, validateRejectionTemplates,
+  validateAutoArchiveStaleDays,
 } from '../../services/employer/company-validators.js';
 import {
   storeLogoFile, deleteLogoFile, publicLogoUrlFor,
@@ -28,6 +29,7 @@ const router = Router();
 const PATCHABLE_FIELDS = [
   'name', 'tagline', 'about', 'socialLinks', 'website', 'retentionDays',
   'privacyPolicyUrl', 'dpoEmail', 'logoUrl', 'rejectionEmailTemplates',
+  'autoArchiveStaleDays',
 ];
 
 // Memory storage, never disk: the buffer is validated (type + size) before
@@ -99,6 +101,9 @@ function buildCompanyPatch(body) {
     patch.privacyPolicyUrl = validateOptionalUrl(body.privacyPolicyUrl, 'INVALID_PRIVACY_POLICY_URL');
   }
   if ('dpoEmail' in body) patch.dpoEmail = validateDpoEmail(body.dpoEmail);
+  if ('autoArchiveStaleDays' in body) {
+    patch.autoArchiveStaleDays = validateAutoArchiveStaleDays(body.autoArchiveStaleDays);
+  }
   if (Object.keys(patch).length === 0) {
     throw new HttpError(400, 'No valid fields to update', 'EMPTY_PATCH');
   }

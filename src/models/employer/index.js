@@ -11,3 +11,4 @@ export * from './company-member-model.js';
 export * from './company-invite-model.js';
 export * from './assignment-model.js';
 export * from './saved-view-model.js';
+export * from './candidate-tag-model.js';
