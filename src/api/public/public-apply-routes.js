@@ -16,6 +16,7 @@ import {
   getAssignmentForCompany, listAssignmentsForIds,
 } from '../../models/employer/assignment-model.js';
 import { processApplication } from '../../services/public/apply-service.js';
+import { countPublicPostingView } from '../../services/public/posting-view-counter.js';
 
 const router = Router();
 const HOUR = 60 * 60 * 1000;
@@ -138,6 +139,10 @@ router.get('/jobs/:companySlug/:jobSlug', asyncHandler(async (req, res) => {
   if (!company) throw new HttpError(404, 'Company not found.', 'COMPANY_NOT_FOUND');
   const posting = await getActivePostingBySlugForCompany(company._id, req.params.jobSlug);
   if (!posting) throw new HttpError(404, 'This job is no longer accepting applications.', 'POSTING_NOT_FOUND');
+
+  // Fire-and-forget: a candidate opened this job. Employer and bot requests are
+  // filtered inside countPublicPostingView, and nothing here awaits the write.
+  countPublicPostingView(req, posting);
 
   // The assignment rides as a SIBLING of `job`, not nested inside it —
   // toPublicPosting is shared with the employer routes and its shape stays fixed.

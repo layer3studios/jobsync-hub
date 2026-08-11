@@ -21,6 +21,7 @@ import {
   ensureCompanyInviteIndexes,
   ensureAssignmentIndexes,
   ensureSavedViewIndexes,
+  ensureCandidateTagIndexes,
 } from './models/employer/index.js';
 
 import {
@@ -62,6 +63,10 @@ import employerArchiveReasonsRouter from './api/employer/employer-archive-reason
 import employerTeamRouter, { acceptRouter as employerInviteAcceptRouter } from './api/employer/employer-team-routes.js';
 import employerInterviewRouter from './api/employer/employer-interview-routes.js';
 import employerDashboardRouter from './api/employer/employer-dashboard-routes.js';
+import employerTagRouter from './api/employer/employer-tag-routes.js';
+import employerActivityRouter from './api/employer/employer-activity-routes.js';
+import employerExportRouter from './api/employer/employer-export-routes.js';
+import employerImportRouter from './api/employer/employer-import-routes.js';
 import publicInterviewRouter from './api/public/public-interview-routes.js';
 import publicInviteRouter from './api/public/public-invite-routes.js';
 import resumeDownloadRouter from './api/public/resume-download-route.js';
@@ -135,6 +140,8 @@ app.use('/api/employer/auth', createEmployerAuthRouter());
 app.use('/api/employer/company', requireEmployer, employerCompanyRouter);
 app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerPostingsRouter);
 app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerSavedViewsRouter);
+app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerExportRouter);
+app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerImportRouter);
 app.use('/api/employer/assignments', requireEmployer, requireEmployerCompany, employerAssignmentsRouter);
 app.use('/api/employer/assignment-reviews', requireEmployer, requireEmployerCompany, employerAssignmentReviewsRouter);
 app.use('/api/employer/applicants', requireEmployer, requireEmployerCompany, employerApplicantRouter);
@@ -145,6 +152,10 @@ app.use('/api/employer/archive-reasons', requireEmployer, requireEmployerCompany
 app.use('/api/employer/team/invites/accept', requireEmployer, employerInviteAcceptRouter);
 app.use('/api/employer/team', requireEmployer, requireEmployerCompany, employerTeamRouter);
 app.use('/api/employer/dashboard', requireEmployer, requireEmployerCompany, employerDashboardRouter);
+// Both declare their own full paths (/tags, /applicants/:id/tags, /activity), so they
+// mount on the bare /api/employer prefix like the interview router below.
+app.use('/api/employer', requireEmployer, requireEmployerCompany, employerTagRouter);
+app.use('/api/employer', requireEmployer, requireEmployerCompany, employerActivityRouter);
 app.use('/api/employer', requireEmployer, requireEmployerCompany, employerInterviewRouter);
 app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerInterviewTimesRouter);
 app.use('/api/dpdp', dpdpRouter); // per-route guards (D9) — /notice-version is public
@@ -177,6 +188,7 @@ const server = app.listen(PORT, async () => {
     await ensureCompanyMemberIndexes();
     await ensureCompanyInviteIndexes();
     await ensureSavedViewIndexes();
+    await ensureCandidateTagIndexes();
     await ensureConsentIndexes();
     await ensureAuditLogIndexes();
     await ensureRightsRequestIndexes();

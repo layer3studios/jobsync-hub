@@ -51,6 +51,27 @@ export async function listArchiveReasonsForCompany(companyId) {
   return collection.find({ companyId: oid }).toArray();
 }
 
+/**
+ * Find a reason by its exact text (case-insensitive) or create it. Exists for the
+ * auto-archive task, which needs a "No response" reason to file its work under and
+ * must not depend on a company having added one by hand.
+ */
+export async function findOrCreateArchiveReasonForCompany(companyId, text, type = 'non-hired') {
+  const oid = toOid(companyId);
+  if (!oid) throw new Error('findOrCreateArchiveReasonForCompany: invalid companyId');
+  const collection = await archiveReasonsCol();
+  const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const existing = await collection.findOne({
+    companyId: oid, text: { $regex: `^${escaped}$`, $options: 'i' },
+  });
+  if (existing) return existing;
+
+  const now = new Date();
+  const doc = { companyId: oid, text, type, status: 'active', createdAt: now, updatedAt: now };
+  const result = await collection.insertOne(doc);
+  return { ...doc, _id: result.insertedId };
+}
+
 /** Fetch one archive reason, scoped to the company — cross-tenant returns null. */
 export async function getArchiveReasonForCompany(companyId, archiveReasonId) {
   const companyOid = toOid(companyId);

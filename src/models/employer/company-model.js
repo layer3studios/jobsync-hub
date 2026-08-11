@@ -90,6 +90,10 @@ export async function createCompany(input, claimedByEmployerUserId) {
       claimed: true,
       claimedByEmployerUserId: ownerOid,
       retentionDays: Number.isInteger(input.retentionDays) ? input.retentionDays : 365,
+      // Days of inactivity after which the auto-archive task retires a candidate.
+      // null = off, and off is the default: nobody gets automatic rejections
+      // without asking for them.
+      autoArchiveStaleDays: input.autoArchiveStaleDays ?? null,
       privacyPolicyUrl: input.privacyPolicyUrl ?? null,
       dpoEmail: input.dpoEmail ?? null,
       createdAt: now,
@@ -132,6 +136,7 @@ export function toPublicCompany(company) {
     logoUrl: company.logoUrl ?? null,
     plan: company.plan,
     retentionDays: company.retentionDays,
+    autoArchiveStaleDays: company.autoArchiveStaleDays ?? null,
     privacyPolicyUrl: company.privacyPolicyUrl ?? null,
     dpoEmail: company.dpoEmail ?? null,
     createdAt: company.createdAt,

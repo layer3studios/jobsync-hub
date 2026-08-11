@@ -42,6 +42,10 @@ export function sanitizeViewFilters(input) {
   if (input.hasNotes === true) out.hasNotes = true;
   if (typeof input.stageId === 'string' && input.stageId.length <= 40) out.stageId = input.stageId;
   if (input.includeArchived === true) out.includeArchived = true;
+  // The ranked table's own two controls. They are part of "the view I was looking
+  // at" just as much as the filter chips are, so a saved view restores them too.
+  if (typeof input.search === 'string' && input.search.trim()) out.search = input.search.trim().slice(0, 100);
+  if (['score', 'date', 'assignment'].includes(input.sort)) out.sort = input.sort;
   return out;
 }
 

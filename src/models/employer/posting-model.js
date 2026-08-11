@@ -108,6 +108,9 @@ export async function createPostingForCompany(companyId, input, createdByEmploye
       // whether the nightly task should close the posting when it passes.
       applicationDeadline: input.applicationDeadline ?? null,
       autoCloseOnDeadline: input.autoCloseOnDeadline === true,
+      // Public apply-page views, incremented by posting-view-counter. Employer
+      // and bot requests are excluded there, never here.
+      viewCount: 0,
       postedAt: status === 'active' ? now : null,
       closedAt: status === 'closed' ? now : null,
       createdAt: now,
@@ -267,6 +270,9 @@ export function toPublicPosting(doc) {
     assignmentId: doc.assignmentId?.toString() ?? null,
     applicationDeadline: doc.applicationDeadline ?? null,
     autoCloseOnDeadline: doc.autoCloseOnDeadline === true,
+    // Postings created before view counting default to 0 rather than null, so the
+    // UI renders "0 views" instead of an empty tile.
+    viewCount: doc.viewCount ?? 0,
     postedAt: doc.postedAt ?? null,
     closedAt: doc.closedAt ?? null,
     createdAt: doc.createdAt,
