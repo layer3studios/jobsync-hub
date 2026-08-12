@@ -28,6 +28,7 @@ import {
   ensureConsentIndexes,
   ensureAuditLogIndexes,
   ensureRightsRequestIndexes,
+  ensureDataExportRequestIndexes,
 } from './models/dpdp/index.js';
 
 import { ensureAdminUserIndexes } from './models/admin/index.js';
@@ -57,6 +58,7 @@ import employerPostingsRouter from './api/employer/employer-postings-routes.js';
 import employerAssignmentsRouter from './api/employer/employer-assignments-routes.js';
 import employerAssignmentReviewsRouter from './api/employer/employer-assignment-reviews-routes.js';
 import employerApplicantRouter from './api/employer/employer-applicant-routes.js';
+import employerCandidateExportRouter from './api/employer/employer-candidate-export-routes.js';
 import employerSavedViewsRouter from './api/employer/employer-saved-views-routes.js';
 import employerStagesRouter from './api/employer/employer-stages-routes.js';
 import employerArchiveReasonsRouter from './api/employer/employer-archive-reasons-routes.js';
@@ -69,6 +71,7 @@ import employerExportRouter from './api/employer/employer-export-routes.js';
 import employerImportRouter from './api/employer/employer-import-routes.js';
 import publicInterviewRouter from './api/public/public-interview-routes.js';
 import publicInviteRouter from './api/public/public-invite-routes.js';
+import publicDpdpExportRouter from './api/public/public-dpdp-export-routes.js';
 import resumeDownloadRouter from './api/public/resume-download-route.js';
 import companyLogoRouter from './api/public/company-logo-route.js';
 import assignmentStagingRouter from './api/public/assignment-staging-routes.js';
@@ -144,6 +147,10 @@ app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerE
 app.use('/api/employer/jobs', requireEmployer, requireEmployerCompany, employerImportRouter);
 app.use('/api/employer/assignments', requireEmployer, requireEmployerCompany, employerAssignmentsRouter);
 app.use('/api/employer/assignment-reviews', requireEmployer, requireEmployerCompany, employerAssignmentReviewsRouter);
+// Export mounts BEFORE the main applicant router only for tidiness — the paths do
+// not overlap (/:applicationId/export exists on neither the other router nor a
+// static path it could shadow).
+app.use('/api/employer/applicants', requireEmployer, requireEmployerCompany, employerCandidateExportRouter);
 app.use('/api/employer/applicants', requireEmployer, requireEmployerCompany, employerApplicantRouter);
 app.use('/api/employer/stages', requireEmployer, requireEmployerCompany, employerStagesRouter);
 app.use('/api/employer/archive-reasons', requireEmployer, requireEmployerCompany, employerArchiveReasonsRouter);
@@ -162,6 +169,9 @@ app.use('/api/dpdp', dpdpRouter); // per-route guards (D9) — /notice-version i
 app.use('/api/public/resume-download', resumeDownloadRouter); // signed-token PDF stream (before the apply catch-all)
 app.use('/api/public/company-logo', companyLogoRouter); // unauthenticated careers-page logo (before the apply catch-all)
 app.use('/api/public/invites', publicInviteRouter); // unauthenticated invite preview (before the apply catch-all)
+// DPDP right of access. Unauthenticated by necessity — the emailed one-time token
+// is the credential. Mounted before the apply catch-all.
+app.use('/api/public/dpdp', publicDpdpExportRouter);
 app.use('/api/public/assignment-files', assignmentStagingRouter); // staging upload (before the apply catch-all)
 app.use('/api/public/assignment-download', assignmentDownloadRouter); // signed-token file stream (before the apply catch-all)
 app.use('/api/public', publicInterviewRouter); // unauthenticated interview booking (before the apply catch-all)
@@ -192,6 +202,7 @@ const server = app.listen(PORT, async () => {
     await ensureConsentIndexes();
     await ensureAuditLogIndexes();
     await ensureRightsRequestIndexes();
+    await ensureDataExportRequestIndexes();
     await ensureContactIndexes();
     await ensureApplicationIndexes();
     await ensureStageChangeIndexes();

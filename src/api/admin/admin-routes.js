@@ -7,6 +7,7 @@ import { Router } from 'express';
 import { requireAdmin } from '../../middleware/require-admin-middleware.js';
 import recleanRouter from './reclean-routes.js';
 import employerAccessRouter from './employer-access-routes.js';
+import adminDpdpRouter from './admin-dpdp-routes.js';
 
 const router = Router();
 
@@ -16,5 +17,6 @@ router.use(requireAdmin);
 
 router.use('/', recleanRouter);
 router.use('/', employerAccessRouter);
+router.use('/dpdp', adminDpdpRouter);
 
 export default router;

@@ -61,6 +61,28 @@ export async function getContactForCompany(companyId, contactId) {
   return collection.findOne({ _id: contactOid, companyId: companyOid });
 }
 
+/** The company's contact for this email, or null. Never creates one. */
+export async function getContactByEmailForCompany(companyId, email) {
+  const companyOid = toOid(companyId);
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!companyOid || !normalizedEmail) return null;
+  const collection = await contactsCol();
+  return collection.findOne({ companyId: companyOid, email: normalizedEmail });
+}
+
+/**
+ * Every contact with this email, ACROSS companies. Intentionally unscoped and the
+ * only such read in this model: a DPDP erasure request is made by a person, not by a
+ * tenant, and one email may be a contact at several employers. Callers must be
+ * fulfilling a data-principal right — nothing user-facing may call this.
+ */
+export async function findContactsByEmailAcrossCompanies(email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) return [];
+  const collection = await contactsCol();
+  return collection.find({ email: normalizedEmail }).toArray();
+}
+
 /** Client-safe projection — id as string. Contacts predating enrichment lack the new fields. */
 export function toPublicContact(doc) {
   return {

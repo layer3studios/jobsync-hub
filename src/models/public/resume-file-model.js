@@ -49,6 +49,30 @@ export async function attachResumeFileToApplication(resumeFileId, applicationId,
   await collection.updateOne({ _id: fileOid }, { $set: { applicationId: appOid } }, { session });
 }
 
+export const DELETED_FILENAME_PLACEHOLDER = '[Deleted]';
+
+/**
+ * DPDP erasure: sever the record from the bytes. The row stays so the pipeline can
+ * still say "a resume was submitted"; storagePath, the original filename and the
+ * extracted text (which is the resume, in full, as text) all go. The caller deletes
+ * the file from disk — this only records that it is gone.
+ */
+export async function redactResumeFileForApplication(applicationId) {
+  const oid = toOid(applicationId);
+  if (!oid) return null;
+  const collection = await resumeFilesCol();
+  return collection.findOneAndUpdate(
+    { applicationId: oid },
+    { $set: {
+      storagePath: null,
+      originalFilename: DELETED_FILENAME_PLACEHOLDER,
+      extractedText: null,
+      deletedAt: new Date(),
+    } },
+    { returnDocument: 'after' },
+  );
+}
+
 /** Fetch the resume-file record for an application. */
 export async function getResumeFileForApplication(applicationId) {
   const oid = toOid(applicationId);

@@ -12,6 +12,7 @@ import {
 import { countApplicationsForJob } from '../../models/public/application-model.js';
 import { getContactForCompany, toPublicContact } from '../../models/public/contact-model.js';
 import { listResumeScoresForJob, toPublicResumeScore } from '../../models/public/resume-score-model.js';
+import { countApplicationsByContact } from '../../models/public/contact-application-model.js';
 import {
   listAssignmentSubmissionsForApplications, getAssignmentSubmissionStatsForJob,
 } from '../../models/public/assignment-submission-model.js';
@@ -104,13 +105,21 @@ export async function listApplicantsForPosting(req, res) {
   const scores = await listResumeScoresForJob(companyId, jobId, applicationIds);
   const scoreByApplicationId = new Map(scores.map((score) => [score.applicationId.toString(), score]));
 
+  // How many roles each candidate has applied to company-wide. One grouped read for
+  // the whole page — a per-row count would be an N+1 on the hottest employer list.
+  const applicationCountByContactId = await countApplicationsByContact(companyId, contactIds);
+
   const merged = applications.map((application) => {
     const contact = contactById.get(application.contactId?.toString()) ?? null;
     const score = scoreByApplicationId.get(application._id.toString()) ?? null;
+    const roleCount = applicationCountByContactId.get(application.contactId?.toString()) ?? 1;
     return {
       application: toPublicApplication(application),
       contact: contact ? toPublicContact(contact) : null,
       score: score ? toPublicResumeScore(score) : null,
+      // Present only for a cross-applicant, so the row renders the pill on truth
+      // rather than on "> 1" arithmetic repeated in the client.
+      ...(roleCount > 1 ? { applicationCount: roleCount } : {}),
     };
   });
 

@@ -59,6 +59,30 @@ export async function findRightsRequestById(rid) {
   return collection.findOne({ _id: oid });
 }
 
+/**
+ * Requests still awaiting fulfilment, oldest-due first — the ops queue this model's
+ * rights_ops_queue index exists for. `types` narrows to e.g. erasure only.
+ */
+export async function listOpenRightsRequests({ types, dueBefore, limit = 200 } = {}) {
+  const query = { status: { $in: ['submitted', 'in_progress'] } };
+  if (Array.isArray(types) && types.length > 0) query.requestType = { $in: types };
+  if (dueBefore instanceof Date) query.dueBy = { $lte: dueBefore };
+  const collection = await rightsCol();
+  return collection.find(query).sort({ dueBy: 1 }).limit(limit).toArray();
+}
+
+/** Move a request to a terminal status. Stamps fulfilledAt when fulfilling. */
+export async function markRightsRequestStatus(rid, status, { fulfilledByAdminId, notes } = {}) {
+  const oid = toOid(rid);
+  if (!oid) return null;
+  const set = { status, updatedAt: new Date() };
+  if (status === 'fulfilled') set.fulfilledAt = new Date();
+  if (fulfilledByAdminId) set.fulfilledByAdminId = toOid(fulfilledByAdminId);
+  if (typeof notes === 'string') set.notes = notes;
+  const collection = await rightsCol();
+  return collection.findOneAndUpdate({ _id: oid }, { $set: set }, { returnDocument: 'after' });
+}
+
 /** Client-safe projection. */
 export function toPublicRightsRequest(reqDoc) {
   return {

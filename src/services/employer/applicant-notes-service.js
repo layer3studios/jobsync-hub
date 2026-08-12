@@ -15,6 +15,7 @@ import { getEmployerUserById } from '../../models/employer/employer-user-model.j
 import {
   createApplicantNote, listApplicantNotesForApplication, toPublicApplicantNote,
 } from '../../models/public/applicant-note-model.js';
+import { resolveMentionedMemberIds, notifyMentionedMembers } from './note-mention-service.js';
 
 const MINIMUM_BODY_LENGTH = 1;
 const MAXIMUM_BODY_LENGTH = 4000;
@@ -60,12 +61,17 @@ async function requireApplicationForCompany(companyId, applicationId) {
  * employer user cannot be loaded (soft-deleted, stale cookie) is refused with 401
  * rather than written with null author fields (D7).
  */
-export async function createApplicantNoteForApplicant(companyId, applicationId, authorEmployerUserId, body) {
+export async function createApplicantNoteForApplicant(
+  companyId, applicationId, authorEmployerUserId, body, mentionedUserIds = [],
+) {
   const cleanBody = validateApplicantNoteBody(body);
   const application = await requireApplicationForCompany(companyId, applicationId);
 
   const author = await getEmployerUserById(authorEmployerUserId);
   if (!author) throw new HttpError(401, 'Author not found', 'AUTHOR_NOT_FOUND');
+
+  // Re-derived from the roster, never trusted from the request (see note-mention-service).
+  const mentions = await resolveMentionedMemberIds(companyId, mentionedUserIds, author._id);
 
   const note = await createApplicantNote({
     companyId,
@@ -74,7 +80,20 @@ export async function createApplicantNoteForApplicant(companyId, applicationId, 
     authorName: author.name ?? null,
     authorEmail: author.email,
     body: cleanBody,
+    mentionedUserIds: mentions,
   });
+
+  // Fire-and-forget: the note is already durable, and an email provider outage must
+  // never turn a saved note into a 500. The .catch is belt-and-braces over a
+  // function that already contracts never to reject.
+  void notifyMentionedMembers({
+    companyId,
+    application,
+    mentionedUserIds: mentions,
+    authorName: author.name ?? author.email,
+    notePreviewSource: cleanBody,
+  }).catch((error) => console.warn(`[notes] mention notify failed: ${error.message}`));
+
   return toPublicApplicantNote(note);
 }
 

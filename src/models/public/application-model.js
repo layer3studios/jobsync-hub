@@ -235,6 +235,40 @@ export async function countApplicationsForJobs(companyId, jobIds) {
   return new Map(rows.map((row) => [row._id.toString(), row.count]));
 }
 
+/**
+ * DPDP erasure: drop the candidate-authored and request-derived fields, keep the row.
+ *
+ * The application itself is aggregate-reporting data (which posting, which stage,
+ * when) and survives. The cover note is the candidate's own words, and IP/user-agent/
+ * referer are personal data collected as consent evidence — all four go.
+ */
+export async function redactApplicationForCompany(companyId, applicationId) {
+  const companyOid = toOid(companyId);
+  const appOid = toOid(applicationId);
+  if (!companyOid || !appOid) return null;
+  const collection = await applicationsCol();
+  return collection.findOneAndUpdate(
+    { _id: appOid, companyId: companyOid },
+    { $set: {
+      coverNote: null, applicantIp: null, userAgent: null, referer: null,
+      updatedAt: new Date(),
+    } },
+    { returnDocument: 'after' },
+  );
+}
+
+/** Every application by one contact within the company, newest first. */
+export async function listApplicationsForContact(companyId, contactId) {
+  const companyOid = toOid(companyId);
+  const contactOid = toOid(contactId);
+  if (!companyOid || !contactOid) return [];
+  const collection = await applicationsCol();
+  return collection
+    .find({ companyId: companyOid, contactId: contactOid })
+    .sort({ appliedAt: -1 })
+    .toArray();
+}
+
 /** Client-safe projection — ids as strings. */
 export function toPublicApplication(doc) {
   return {
