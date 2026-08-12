@@ -34,6 +34,10 @@ export const AUDIT_EVENTS = Object.freeze({
   RIGHTS_REQUEST_STATUS_CHANGED: 'rights_request_status_changed',
   DATA_ACCESSED: 'data_accessed',
   DATA_DELETED: 'data_deleted',
+  // Fulfilment of an erasure right: the contact was anonymized and its resumes,
+  // notes and request metadata were stripped. Distinct from DATA_DELETED, which
+  // covers ordinary retention sweeps rather than a Data Principal's request.
+  ERASURE_COMPLETED: 'erasure_completed',
   // Interview scheduling is a distinct processing activity on candidate
   // personal data (name, email, availability) and must leave an audit trail.
   INTERVIEW_PROPOSED: 'interview_proposed',

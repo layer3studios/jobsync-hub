@@ -8,9 +8,12 @@ import { Router } from 'express';
 import { asyncHandler } from '../../middleware/async-handler-middleware.js';
 import { requireEmployerApplicant } from '../../middleware/require-employer-applicant-middleware.js';
 import {
-  requireInterviewerOrHigher, requireMemberOrHigher,
+  requireInterviewerOrHigher, requireMemberOrHigher, requireOwnerOrHigher,
   requireCanMoveApplicants, requireCanArchiveApplicants,
 } from '../../middleware/require-company-role-middleware.js';
+import {
+  previewCandidateAnonymization, anonymizeCandidateForApplication,
+} from '../../services/employer/candidate-anonymize-service.js';
 import { getApplicantDetailForCompany } from '../../services/employer/applicant-detail-service.js';
 import { moveApplicantToStage } from '../../services/employer/applicant-move-service.js';
 import { archiveApplicant, unarchiveApplicant, bulkArchiveApplicants } from '../../services/employer/applicant-archive-service.js';
@@ -109,12 +112,33 @@ router.get('/:applicationId/notes', requireInterviewerOrHigher, requireEmployerA
   res.json({ notes });
 }));
 
-// POST /api/employer/applicants/:applicationId/notes — { body }. 201 with the new note.
+// POST /api/employer/applicants/:applicationId/notes — { body, mentionedUserIds? }.
+// 201 with the new note. Unknown or cross-tenant mention ids are dropped by the
+// service, not rejected — a stale roster must never cost the author their note.
 router.post('/:applicationId/notes', requireInterviewerOrHigher, requireEmployerApplicant, asyncHandler(async (req, res) => {
   const note = await createApplicantNoteForApplicant(
-    req.employerCompanyId, req.application._id, req.employerUser.employerUserId, req.body?.body,
+    req.employerCompanyId, req.application._id, req.employerUser.employerUserId,
+    req.body?.body, req.body?.mentionedUserIds,
   );
   res.status(201).json({ note });
+}));
+
+// GET /api/employer/applicants/:applicationId/anonymize-preview — what the action
+// would touch. Owner+, same as the action itself: a count of someone's applications
+// is not a number a viewer who cannot act on it needs.
+router.get('/:applicationId/anonymize-preview', requireOwnerOrHigher, requireEmployerApplicant, asyncHandler(async (req, res) => {
+  const preview = await previewCandidateAnonymization(req.employerCompanyId, req.application._id);
+  res.json({ preview });
+}));
+
+// POST /api/employer/applicants/:applicationId/anonymize — irreversible erasure of
+// this candidate's personal data across EVERY application they made at this company.
+// Idempotent: a second call answers 200 with alreadyAnonymized: true.
+router.post('/:applicationId/anonymize', requireOwnerOrHigher, requireEmployerApplicant, asyncHandler(async (req, res) => {
+  const result = await anonymizeCandidateForApplication(
+    req.employerCompanyId, req.application._id, req.employerUser.employerUserId,
+  );
+  res.json({ result });
 }));
 
 export default router;

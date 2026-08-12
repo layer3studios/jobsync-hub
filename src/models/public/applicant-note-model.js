@@ -47,6 +47,10 @@ export async function createApplicantNote(data) {
     authorName: data.authorName ?? null,
     authorEmail: data.authorEmail,
     body: data.body,
+    // Teammates named with @ in the body. Ids, not names: the body is immutable
+    // history and a renamed teammate must still resolve to the right person. The
+    // service validates every id is a current member before it gets here.
+    mentionedUserIds: (data.mentionedUserIds ?? []).map(toOid).filter(Boolean),
     createdAt: now,
     updatedAt: now,
   };
@@ -72,6 +76,33 @@ export async function listApplicantNotesForApplication(companyId, applicationId,
     .toArray();
 }
 
+export const REDACTED_NOTE_BODY = '[Note removed per data erasure request]';
+
+/**
+ * THE ONE EXCEPTION TO APPEND-ONLY. Notes are immutable history everywhere else in
+ * this model, and deliberately so — but a note is free text an employer wrote about a
+ * candidate, and a DPDP erasure request reaches it. Statutory erasure outranks our
+ * own audit convention, so this write exists and no other does.
+ *
+ * The body is replaced; authorName/authorEmail/timestamps are NOT. Those are the
+ * employer's own data, and keeping them preserves the fact that someone said
+ * something at some time, which is what makes the trail worth having.
+ *
+ * Returns the number of notes redacted. Idempotent — already-redacted bodies are
+ * skipped by the filter, so a second run reports 0 rather than double-counting.
+ */
+export async function redactNotesForApplication(companyId, applicationId) {
+  const companyOid = toOid(companyId);
+  const applicationOid = toOid(applicationId);
+  if (!companyOid || !applicationOid) return 0;
+  const collection = await applicantNotesCol();
+  const result = await collection.updateMany(
+    { companyId: companyOid, applicationId: applicationOid, body: { $ne: REDACTED_NOTE_BODY } },
+    { $set: { body: REDACTED_NOTE_BODY, redactedAt: new Date(), updatedAt: new Date() } },
+  );
+  return result.modifiedCount;
+}
+
 /** Client-safe projection — ids as strings, timestamps as Dates (JSON → ISO, §9). */
 export function toPublicApplicantNote(doc) {
   return {
@@ -81,6 +112,8 @@ export function toPublicApplicantNote(doc) {
     authorName: doc.authorName ?? null,
     authorEmail: doc.authorEmail,
     body: doc.body,
+    // Absent on notes written before mentions existed — default, never assume.
+    mentionedUserIds: (doc.mentionedUserIds ?? []).map((id) => id.toString()),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };

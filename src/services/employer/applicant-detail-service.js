@@ -18,6 +18,9 @@ import {
 import {
   getAssignmentReviewForSubmission, toPublicAssignmentReview,
 } from '../../models/public/assignment-review-model.js';
+import {
+  listOtherApplicationsForContact, toOtherApplication,
+} from '../../models/public/contact-application-model.js';
 import { toEmployerApplication, toEmployerStageChange, toResumeMeta } from './applicant-mappers.js';
 import { signResumeToken } from './signed-url-service.js';
 
@@ -43,6 +46,13 @@ export async function getApplicantDetailForCompany(companyId, applicationId) {
     ? await getAssignmentReviewForSubmission(companyId, assignmentSubmission._id)
     : null;
 
+  // The same person's other applications at this company (contacts are deduped by
+  // email, so this is identity, not a guess). Omitted from the response entirely
+  // when empty — the UI's signal to render nothing rather than an empty section.
+  const otherApplications = application.contactId
+    ? await listOtherApplicationsForContact(companyId, application.contactId, application._id)
+    : [];
+
   const resumeMeta = resumeFile ? toResumeMeta(resumeFile) : null;
   const resumeDownloadUrl = resumeMeta
     ? `/api/public/resume-download?token=${signResumeToken(application._id)}`
@@ -56,6 +66,9 @@ export async function getApplicantDetailForCompany(companyId, applicationId) {
     stageChanges: stageChanges.map(toEmployerStageChange),
     resumeMeta,
     resumeDownloadUrl,
+    ...(otherApplications.length > 0
+      ? { otherApplications: otherApplications.map(toOtherApplication) }
+      : {}),
     // Two SEPARATE scoring axes. `score` above is the AI resume score (0-100 with
     // tiers); assignmentReview.overallScore is a human 1-5 verdict. They measure
     // different things on different scales — never blend or average them.
