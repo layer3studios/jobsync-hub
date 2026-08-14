@@ -18,6 +18,26 @@ import { buildInterviewCancelledEmail } from '../email/templates/interview-cance
 import { buildInterviewReminderEmail } from '../email/templates/interview-reminder-template.js';
 import { REMINDER_RECIPIENT_KINDS } from '../../models/interview/interview-reminder-job-model.js';
 import { buildIcsInput, icsAttachment, sendAndTally } from './interview-notification-helpers.js';
+import { filterRecipientsByPreference } from '../employer/notification-gate-service.js';
+
+/**
+ * Interviewer addresses for one event, minus anyone who turned that event off.
+ *
+ * CANDIDATE MAIL IS NEVER FILTERED HERE — a candidate is not a JobMesh user and has
+ * no preferences. Only the interviewer loops go through this.
+ *
+ * Cancellations deliberately do NOT pass through: an interviewer who muted
+ * "interview scheduled" still needs to know an interview they are booked on is off,
+ * and the cost of that email being unwanted is nothing next to the cost of someone
+ * dialling into a call that was cancelled.
+ */
+async function allowedInterviewerEmails(context, eventType) {
+  // Older callers may hand us a context built before interviewerRecipients existed.
+  // Fall back to sending — see the gate service's fail-open contract.
+  if (!context.interviewerRecipients) return context.interviewerEmails ?? [];
+  const allowed = await filterRecipientsByPreference(context.interviewerRecipients, eventType);
+  return allowed.map((recipient) => recipient.email);
+}
 
 export function buildBookingUrl(bookingToken) {
   return `${FRONTEND_URL}/interview/${bookingToken}`;
@@ -82,7 +102,7 @@ export async function sendInterviewConfirmationEmails(context, deps = {}) {
   const interviewerEmail = buildInterviewerConfirmationEmail({
     ...shared, candidateName: context.candidateName, candidateEmail: context.candidateEmail,
   });
-  for (const recipient of context.interviewerEmails) {
+  for (const recipient of await allowedInterviewerEmails(context, 'interviewScheduled')) {
     await sendAndTally(sendEmail, summary, { to: recipient, ...interviewerEmail, attachments });
   }
   return summary;
@@ -132,7 +152,7 @@ export async function sendInterviewReminderEmail(context, recipientKind, deps = 
   });
   const recipients = recipientKind === REMINDER_RECIPIENT_KINDS.CANDIDATE
     ? [context.candidateEmail]
-    : context.interviewerEmails;
+    : await allowedInterviewerEmails(context, 'interviewReminder');
   for (const recipient of recipients) {
     await sendAndTally(sendEmail, summary, { to: recipient, subject, html, text, attachments });
   }

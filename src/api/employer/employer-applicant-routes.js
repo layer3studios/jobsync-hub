@@ -23,6 +23,7 @@ import {
   createApplicantNoteForApplicant, listApplicantNotesForApplicant,
 } from '../../services/employer/applicant-notes-service.js';
 import { buildCandidateTimeline } from '../../services/employer/candidate-timeline-service.js';
+import { getInterviewSummary } from '../../services/interview/interview-summary-service.js';
 import { bulkMoveStage } from '../../services/employer/bulk-stage-move-service.js';
 
 const router = Router();
@@ -121,6 +122,16 @@ router.post('/:applicationId/notes', requireInterviewerOrHigher, requireEmployer
     req.body?.body, req.body?.mentionedUserIds,
   );
   res.status(201).json({ note });
+}));
+
+// GET /api/employer/applicants/:applicationId/feedback-summary — the panel's
+// aggregated verdicts. Interviewer+ so a panel member can see their own summary;
+// the anti-bias hold is applied per viewer inside the service, not by role.
+router.get('/:applicationId/feedback-summary', requireInterviewerOrHigher, requireEmployerApplicant, asyncHandler(async (req, res) => {
+  const summary = await getInterviewSummary(req.employerCompanyId, req.application._id, {
+    viewerEmployerUserId: req.employerUser.employerUserId,
+  });
+  res.json({ summary });
 }));
 
 // GET /api/employer/applicants/:applicationId/anonymize-preview — what the action

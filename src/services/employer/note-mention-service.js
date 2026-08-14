@@ -18,6 +18,7 @@ import { getPostingForCompany } from '../../models/employer/posting-model.js';
 import { getContactForCompany } from '../../models/public/contact-model.js';
 import { sendTransactionalEmail } from '../email/send-email-service.js';
 import { buildNoteMentionEmail, buildNotePreview } from '../email/templates/note-mention-template.js';
+import { shouldNotify } from './notification-gate-service.js';
 
 const MAXIMUM_MENTIONS_PER_NOTE = 20;
 
@@ -73,6 +74,10 @@ export async function notifyMentionedMembers({
   const results = await Promise.all(mentionedUserIds.map(async (userId) => {
     const user = await getEmployerUserById(userId);
     if (!user?.email) return false;
+    // Muting mentions suppresses the EMAIL only. The note is already saved and the
+    // "@Name" still renders in it, so the mention is never lost — it just stops
+    // arriving in an inbox.
+    if (!await shouldNotify(userId, 'noteMention')) return false;
     const outcome = await sendTransactionalEmail({ to: user.email, ...email });
     return outcome.sent;
   }));

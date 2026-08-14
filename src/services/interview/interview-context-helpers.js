@@ -11,9 +11,24 @@ import { getEmployerUserById as defaultGetEmployerUserById } from '../../models/
 
 /** Emails for a set of employer user ids; unknown ids are skipped. */
 export async function resolveInterviewerEmails(interviewerEmployerUserIds, deps = {}) {
+  const recipients = await resolveInterviewerRecipients(interviewerEmployerUserIds, deps);
+  return recipients.map((recipient) => recipient.email);
+}
+
+/**
+ * The same people, but as { employerUserId, email } pairs.
+ *
+ * The id has to survive alongside the address because notification preferences are
+ * per USER, and an email string cannot be asked whether its owner wants this event.
+ * resolveInterviewerEmails is kept as the thin projection so existing callers and
+ * tests are untouched.
+ */
+export async function resolveInterviewerRecipients(interviewerEmployerUserIds, deps = {}) {
   const { getEmployerUserById = defaultGetEmployerUserById } = deps;
   const users = await Promise.all((interviewerEmployerUserIds ?? []).map((id) => getEmployerUserById(id)));
-  return users.map((user) => user?.email).filter(Boolean);
+  return users
+    .filter((user) => user?.email)
+    .map((user) => ({ employerUserId: user._id, email: user.email }));
 }
 
 /**
@@ -38,6 +53,10 @@ export async function buildInterviewEmailContext(interview, deps = {}) {
   ]);
   if (!company || !posting || !contact) return null;
 
+  const interviewerRecipients = await resolveInterviewerRecipients(
+    interview.interviewerEmployerUserIds, deps,
+  );
+
   return {
     interview,
     companyName: company.name,
@@ -48,6 +67,9 @@ export async function buildInterviewEmailContext(interview, deps = {}) {
     candidatePhone: contact.phone ?? null, // phone-mode "we call you" emails
     organizerName: organizer?.name || company.name,
     organizerEmail: organizer?.email || company.dpoEmail || '',
-    interviewerEmails: await resolveInterviewerEmails(interview.interviewerEmployerUserIds, deps),
+    // Both shapes: `interviewerEmails` is what the templates and existing callers
+    // read, `interviewerRecipients` is what the notification gate needs.
+    interviewerEmails: interviewerRecipients.map((recipient) => recipient.email),
+    interviewerRecipients,
   };
 }
