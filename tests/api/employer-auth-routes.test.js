@@ -87,9 +87,14 @@ test('POST /google response exposes only safe fields (no googleId)', async () =>
   await setEmployerSignupOpen(true, null);
   const app = buildApp(stubReturning(PROFILE));
   const res = await request(app).post('/api/employer/auth/google').send({ credential: 'x' });
+  // The full allowlist, asserted exactly so a new field cannot be added to the
+  // projection without someone deciding here that it is safe to expose.
   assert.deepEqual(
     Object.keys(res.body.employerUser).sort(),
-    ['companyId', 'email', 'id', 'name', 'picture'],
+    [
+      'avatarUrl', 'companyId', 'email', 'id', 'jobTitle', 'name',
+      'notificationPreferences', 'picture', 'timezone',
+    ],
   );
   assert.equal(res.body.employerUser.googleId, undefined);
 });

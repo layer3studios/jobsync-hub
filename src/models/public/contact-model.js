@@ -5,6 +5,7 @@
 
 import { ObjectId } from 'mongodb';
 import { col } from '../../Db/connection.js';
+import { toDoNotContact } from './contact-do-not-contact-model.js';
 
 const contactsCol = () => col('contacts');
 
@@ -95,6 +96,9 @@ export function toPublicContact(doc) {
     portfolioUrl: doc.portfolioUrl ?? null,
     location: doc.location ?? null,
     firstSeenAt: doc.firstSeenAt,
+    // Always present, defaults applied — a UI that has to check for the key's
+    // existence before checking the flag will eventually forget to.
+    doNotContact: toDoNotContact(doc.doNotContact),
   };
 }
 

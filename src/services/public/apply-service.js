@@ -36,6 +36,14 @@ import {
 } from './assignment-submission-validators.js';
 import { enqueueScoreJob } from './resume-score-queue-service.js';
 import { queueApplicationReceivedEmail } from '../email/application-received-email-service.js';
+import { queueNewApplicationNotification } from '../employer/new-application-notification-service.js';
+import { isDoNotContact } from '../../models/public/contact-do-not-contact-model.js';
+
+/** A flagged person applying again is worth a server-side breadcrumb, nothing more. */
+function logDoNotContactApplication(contact, posting) {
+  if (!isDoNotContact(contact)) return;
+  console.warn(`[apply] do-not-contact candidate applied to posting ${posting._id}`);
+}
 
 const MAX_SUBMISSION_FILES = 5;
 const SUBMISSION_REL = 'data/assignment-submissions';
@@ -245,7 +253,25 @@ export async function processApplication(companySlug, jobSlug, form, resume, met
         to: clean.email, firstName: clean.firstName,
         postingTitle: posting.title, companyName: company.name,
       });
+      // The team's side of the same event. Separately gated per teammate, and
+      // separately fire-and-forget — neither send can affect the other.
+      queueNewApplicationNotification({
+        companyId: company._id, companyName: company.name,
+        postingId: posting._id.toString(), postingTitle: posting.title,
+        applicationId: application._id.toString(),
+        candidateName: `${clean.firstName} ${clean.lastName ?? ''}`.trim() || clean.email,
+      });
 
+      // The application is ACCEPTED regardless of the do-not-contact flag: silently
+      // rejecting someone because a recruiter once flagged them would be worse than
+      // accepting and warning the employer.
+      //
+      // THE WARNING IS DELIBERATELY NOT IN THIS RESPONSE. This payload goes to the
+      // CANDIDATE, and telling them they are flagged would leak an internal
+      // judgement straight back to its subject. The employer sees it the moment the
+      // application appears, because the flag lives on the contact and every
+      // applicant surface already renders it — see DoNotContactBanner.
+      logDoNotContactApplication(contact, posting);
       return { applicationId: application._id.toString() };
     }
 
@@ -354,7 +380,15 @@ export async function processApplication(companySlug, jobSlug, form, resume, met
       to: clean.email, firstName: clean.firstName,
       postingTitle: posting.title, companyName: company.name,
     });
+    queueNewApplicationNotification({
+      companyId: company._id, companyName: company.name,
+      postingId: posting._id.toString(), postingTitle: posting.title,
+      applicationId: applicationId.toString(),
+      candidateName: `${clean.firstName} ${clean.lastName ?? ''}`.trim() || clean.email,
+    });
 
+    // Not surfaced to the candidate — see the note on the plain path.
+    logDoNotContactApplication(contact, posting);
     return { applicationId: applicationId.toString() };
   } catch (err) {
     storage.deleteResumeFile(stored.storagePath); // cleanup on partial failure (D6)

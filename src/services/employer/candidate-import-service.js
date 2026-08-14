@@ -7,6 +7,7 @@
 // import keeps going. The summary is the deliverable, not an exception.
 
 import { findOrCreateContactForCompany } from '../../models/public/contact-model.js';
+import { isDoNotContact } from '../../models/public/contact-do-not-contact-model.js';
 import { createApplicationForCompany } from '../../models/public/application-model.js';
 import { createStageChange } from '../../models/public/stage-change-model.js';
 import { createResumeFile, attachResumeFileToApplication } from '../../models/public/resume-file-model.js';
@@ -26,7 +27,13 @@ export const isValidEmail = (value) => EMAIL_PATTERN.test(String(value ?? '').tr
 
 /** Running totals plus the per-file reasons. One per import request. */
 export function createImportSummary() {
-  return { imported: 0, duplicates: 0, failed: 0, errors: [], seenEmails: new Set() };
+  return {
+    imported: 0, duplicates: 0, failed: 0,
+    // Counted separately from duplicates and failures: a flagged candidate is not a
+    // mistake in the file, and burying them in `failed` would read as an import bug.
+    doNotContact: 0,
+    errors: [], seenEmails: new Set(),
+  };
 }
 
 /** Record a skipped/failed file without letting it stop the batch. */
@@ -41,6 +48,7 @@ export function toPublicSummary(summary) {
     imported: summary.imported,
     duplicates: summary.duplicates,
     failed: summary.failed,
+    doNotContact: summary.doNotContact,
     errors: summary.errors.slice(0, 100),
   };
 }
@@ -84,6 +92,11 @@ export async function importCandidate(companyId, posting, stage, row, { resume =
     fullName: [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || null,
     phone: row.phone ?? null,
   });
+
+  // A flagged contact is skipped BEFORE any application is written. The flag means
+  // "never reach out to this person again", and importing them onto a posting is
+  // exactly the sourcing action it exists to stop.
+  if (isDoNotContact(contact)) return { status: 'do_not_contact' };
 
   // Already applied to this posting — reuse nothing, create nothing.
   const applications = await col('applications');
@@ -153,6 +166,7 @@ export async function applyRowToSummary(summary, companyId, posting, stage, row,
   try {
     const result = await importCandidate(companyId, posting, stage, { ...row, email }, options);
     if (result.status === 'duplicate') summary.duplicates += 1;
+    else if (result.status === 'do_not_contact') summary.doNotContact += 1;
     else summary.imported += 1;
   } catch (err) {
     recordFailure(summary, row.filename ?? email, err.message || 'Could not import this candidate.');

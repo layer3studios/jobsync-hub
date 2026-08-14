@@ -24,6 +24,7 @@ import {
   toPublicCompany,
 } from '../../models/employer/index.js';
 import { verifyEmployerGoogleIdToken } from '../../services/auth/verify-google-token-service.js';
+import { toPublicEmployerUser } from './employer-user-projection.js';
 import { asyncHandler } from '../../middleware/async-handler-middleware.js';
 import { HttpError } from '../../middleware/error-handler-middleware.js';
 
@@ -37,17 +38,6 @@ const cookieOptions = () => ({
   maxAge: 7 * 24 * 60 * 60 * 1000,
   path: '/',
 });
-
-// Only ever expose non-sensitive fields to the client — never googleId.
-function toPublicEmployerUser(user) {
-  return {
-    id: user._id.toString(),
-    email: user.email,
-    name: user.name,
-    picture: user.picture || null,
-    companyId: user.companyId || null,
-  };
-}
 
 function signEmployerToken(user) {
   return jwt.sign(
