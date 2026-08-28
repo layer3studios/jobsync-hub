@@ -9,6 +9,7 @@
 // carry parsedRequirements.
 
 import { SCRAPER_JD_EXTRACTION_ENABLED } from '../env.js';
+import { isFeatureEnabled as defaultIsFeatureEnabled } from '../models/admin/feature-flags-model.js';
 import { extractAndStoreRequirements as defaultExtract } from '../gemma/background-extractor.js';
 import { getScraperAiClient as defaultGetClient } from '../gemma/gemma-runtime.js';
 
@@ -23,10 +24,16 @@ export async function runParsePhase(allNewJobs, deps = {}) {
     getClient = defaultGetClient,
     extractAndStoreRequirements = defaultExtract,
     enabled = SCRAPER_JD_EXTRACTION_ENABLED,
+    isFeatureEnabled = defaultIsFeatureEnabled,
   } = deps;
 
   if (!enabled) {
     console.log('[scraper] JD extraction disabled — skipping parse phase');
+    return { parsed: 0, skipped: 0, failed: 0 };
+  }
+  // Runtime flag, checked alongside the env gate. Fails open on a DB error.
+  if (!(await isFeatureEnabled('jdExtractionEnabled'))) {
+    console.log('[scraper] JD extraction paused by feature flag — skipping parse phase');
     return { parsed: 0, skipped: 0, failed: 0 };
   }
   if (!Array.isArray(allNewJobs) || allNewJobs.length === 0) {

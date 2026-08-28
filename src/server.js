@@ -53,6 +53,9 @@ import { createAdminAiUsageRouter } from './api/admin/admin-ai-usage-routes.js';
 import { ensureUsageStatsIndexes } from './gemma/usage-stats.js';
 import { createScraperHealthRouter } from './api/admin/scraper-health-routes.js';
 import { createQueueMonitorRouter } from './api/admin/queue-monitor-routes.js';
+import { createAuditLogRouter } from './api/admin/audit-log-routes.js';
+import { createFeatureFlagsRouter } from './api/admin/feature-flags-routes.js';
+import { isFeatureEnabled } from './models/admin/feature-flags-model.js';
 import { createCompanyHealthRouter } from './api/admin/company-health-routes.js';
 import { createMissionControlRouter } from './api/admin/mission-control-routes.js';
 import { ensureScrapeRunIndexes } from './models/admin/index.js';
@@ -149,6 +152,8 @@ app.use('/api/admin/queues', requireAdmin, createQueueMonitorRouter());
 // the generic admin router so neither is ever shadowed.
 app.use('/api/admin/companies-health', requireAdmin, createCompanyHealthRouter());
 app.use('/api/admin/overview', requireAdmin, createMissionControlRouter());
+app.use('/api/admin/audit-log', requireAdmin, createAuditLogRouter());
+app.use('/api/admin/feature-flags', requireAdmin, createFeatureFlagsRouter());
 app.use('/api/admin', adminRouter);
 // Admin analytics: jm_admin_token via new require-admin-middleware (D5 — standalone,
 // no seeker chain). Kept mounted separately (not under adminRouter) to preserve
@@ -281,7 +286,14 @@ const server = app.listen(PORT, async () => {
 
     // Daily scrape at 06:00 server time — gated on SYNC_ENABLED so .env can disable it.
     if (SYNC_ENABLED) {
-      cron.schedule('0 6 * * *', () => {
+      cron.schedule('0 6 * * *', async () => {
+        // SYNC_ENABLED (above) decides whether the job is ever scheduled; the
+        // flag is the runtime pause an admin can toggle without a redeploy.
+        // isFeatureEnabled fails open, so a DB problem still runs the scrape.
+        if (!(await isFeatureEnabled('scraperCronEnabled'))) {
+          console.log('[cron] daily scrape SKIPPED (scraperCronEnabled=false)');
+          return;
+        }
         console.log('[cron] daily scrape');
         runScraper();
       });

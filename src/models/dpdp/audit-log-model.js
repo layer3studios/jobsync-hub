@@ -49,6 +49,16 @@ export async function listAuditForActor(actorId, { limit = 50 } = {}) {
   return collection.find({ actorId: oid }).sort({ createdAt: -1 }).limit(limit).toArray();
 }
 
+/**
+ * Most-recent entries across every actor, optionally narrowed to one event.
+ * The admin viewer's read; still no update or delete path (C7).
+ */
+export async function listRecentAuditEntries({ event, limit = 100 } = {}) {
+  const collection = await auditCol();
+  const filter = event ? { event } : {};
+  return collection.find(filter).sort({ createdAt: -1 }).limit(limit).toArray();
+}
+
 /** Most-recent audit entries of a given event type. */
 export async function listAuditByEvent(event, { limit = 50 } = {}) {
   const collection = await auditCol();
