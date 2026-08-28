@@ -51,6 +51,8 @@ import { createAdminAnalyticsRouter } from './api/admin/admin-analytics-routes.j
 import adminTeamRouter from './api/admin/admin-team-routes.js';
 import { createAdminAiUsageRouter } from './api/admin/admin-ai-usage-routes.js';
 import { ensureUsageStatsIndexes } from './gemma/usage-stats.js';
+import { createScraperHealthRouter } from './api/admin/scraper-health-routes.js';
+import { ensureScrapeRunIndexes } from './models/admin/index.js';
 import newsRouter from './api/seeker/news-routes.js';
 import { createEmployerAuthRouter } from './api/employer/employer-auth-routes.js';
 import employerCompanyRouter from './api/employer/employer-company-routes.js';
@@ -134,6 +136,9 @@ app.use('/api/admin/team', requireAdmin, adminTeamRouter);
 // AI spend dashboard. Mounted before /api/admin so the generic admin router
 // never shadows it.
 app.use('/api/admin/ai-usage', requireAdmin, createAdminAiUsageRouter());
+// Scraper health. Same reason as ai-usage: mounted before the generic admin
+// router so it is never shadowed.
+app.use('/api/admin/scraper-health', requireAdmin, createScraperHealthRouter());
 app.use('/api/admin', adminRouter);
 // Admin analytics: jm_admin_token via new require-admin-middleware (D5 — standalone,
 // no seeker chain). Kept mounted separately (not under adminRouter) to preserve
@@ -199,6 +204,7 @@ const server = app.listen(PORT, async () => {
     await ensureEmployerUserIndexes();
     await ensureAdminUserIndexes();
     await ensureUsageStatsIndexes();
+    await ensureScrapeRunIndexes();
     await ensureEmployerAccessIndexes();
     await ensureCompanyIndexes();
     await ensureStageIndexes();

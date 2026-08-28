@@ -14,26 +14,67 @@ import { SITES_CONFIG } from '../config.js';
 import { loadAllExistingIDs, deleteOldJobs, deleteExpiredJobs } from '../Db/jobs/index.js';
 import { scrapeSite } from '../core/scraperEngine.js';
 import { runParsePhase } from './scraper-parse-phase.js';
+import { newRunId, recordScrapeRun } from '../models/admin/scrape-run-model.js';
 
 let isScraping = false;
 
-/** Phase 1: scrape + clean up every site, accumulating the new jobs. */
-async function fetchAllSites(existingIDsMap) {
+/** Live view of the scrape lock, for the admin health dashboard's run-now route. */
+export const isScraperRunning = () => isScraping;
+
+/**
+ * Phase 1: scrape + clean up every site, accumulating the new jobs.
+ * Each site also emits one scrape_runs row. The recording is fire-and-forget
+ * (recordScrapeRun swallows its own errors) and a site error is re-thrown
+ * unchanged after being recorded, so the loop's control flow is untouched.
+ */
+async function fetchAllSites(existingIDsMap, runId) {
   const allNewJobs = [];
 
   for (const siteConfig of SITES_CONFIG) {
     if (!siteConfig?.siteName) continue;
 
-    const { newJobs, seenJobIds, scrapedSuccessfully } = await scrapeSite(siteConfig, existingIDsMap);
-    console.log(`[${siteConfig.siteName}] ${newJobs.length} new jobs`);
-    allNewJobs.push(...newJobs);
+    const startedAt = new Date();
+    let seen = 0;
+    let fetchedNewJobs = 0;
+    let deletedExpired = 0;
 
-    // Cleanup stays per-site and immediate — it depends on that site's crawl.
-    if (scrapedSuccessfully && seenJobIds.size > 0) {
-      await deleteExpiredJobs(siteConfig.siteName, seenJobIds);
-    } else {
-      console.log(`[${siteConfig.siteName}] scrape incomplete — 7-day fallback cleanup`);
-      await deleteOldJobs(siteConfig.siteName);
+    try {
+      const { newJobs, seenJobIds, scrapedSuccessfully } = await scrapeSite(siteConfig, existingIDsMap);
+      console.log(`[${siteConfig.siteName}] ${newJobs.length} new jobs`);
+      allNewJobs.push(...newJobs);
+      seen = seenJobIds.size;
+      fetchedNewJobs = newJobs.length;
+
+      // Cleanup stays per-site and immediate — it depends on that site's crawl.
+      if (scrapedSuccessfully && seenJobIds.size > 0) {
+        deletedExpired = await deleteExpiredJobs(siteConfig.siteName, seenJobIds);
+      } else {
+        console.log(`[${siteConfig.siteName}] scrape incomplete — 7-day fallback cleanup`);
+        deletedExpired = await deleteOldJobs(siteConfig.siteName);
+      }
+
+      await recordScrapeRun({
+        runId,
+        siteName: siteConfig.siteName,
+        startedAt,
+        jobsFetched: seen,
+        newJobs: fetchedNewJobs,
+        deletedExpired,
+        scrapedSuccessfully,
+        errorMessage: null,
+      });
+    } catch (err) {
+      await recordScrapeRun({
+        runId,
+        siteName: siteConfig.siteName,
+        startedAt,
+        jobsFetched: seen,
+        newJobs: fetchedNewJobs,
+        deletedExpired,
+        scrapedSuccessfully: false,
+        errorMessage: err?.message ?? String(err),
+      });
+      throw err;
     }
   }
 
@@ -51,7 +92,7 @@ export async function runScraper() {
   try {
     const existingIDsMap = await loadAllExistingIDs();
 
-    const allNewJobs = await fetchAllSites(existingIDsMap);
+    const allNewJobs = await fetchAllSites(existingIDsMap, newRunId());
     console.log(`[scraper] fetched ${allNewJobs.length} new jobs across all sites`);
 
     await runParsePhase(allNewJobs);
