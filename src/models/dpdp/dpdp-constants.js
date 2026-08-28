@@ -48,6 +48,20 @@ export const AUDIT_EVENTS = Object.freeze({
   INTERVIEW_COMPLETED: 'interview_completed',
   INTERVIEW_NO_SHOW: 'interview_no_show',
   REJECTION_EMAIL_SENT: 'rejection_email_sent',
+  // Admin-panel administration. These record who changed the platform's own
+  // access and configuration — not processing of a Data Principal's data, but
+  // the same append-only trail is the right home for them.
+  ADMIN_INVITED: 'admin_invited',
+  ADMIN_INVITE_ACCEPTED: 'admin_invite_accepted',
+  INVITE_RESENT: 'invite_resent',
+  INVITE_REVOKED: 'invite_revoked',
+  ADMIN_DEACTIVATED: 'admin_deactivated',
+  ADMIN_REACTIVATED: 'admin_reactivated',
+  ADMIN_ROLE_CHANGED: 'admin_role_changed',
+  EMPLOYER_SIGNUP_TOGGLED: 'employer_signup_toggled',
+  WHITELIST_ENTRY_ADDED: 'whitelist_entry_added',
+  WHITELIST_ENTRY_REMOVED: 'whitelist_entry_removed',
+  FEATURE_FLAG_CHANGED: 'feature_flag_changed',
 });
 
 /** True when `value` is one of the frozen enum's values. */

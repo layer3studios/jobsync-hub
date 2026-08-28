@@ -13,6 +13,8 @@ import {
 } from '../../models/employer/index.js';
 import { asyncHandler } from '../../middleware/async-handler-middleware.js';
 import { HttpError } from '../../middleware/error-handler-middleware.js';
+import { appendAudit } from '../../services/dpdp/audit-log-service.js';
+import { AUDIT_EVENTS } from '../../models/dpdp/dpdp-constants.js';
 
 const router = Router();
 
@@ -42,6 +44,13 @@ router.post('/employer-access/toggle', asyncHandler(async (req, res) => {
     throw new HttpError(400, 'isEmployerSignupOpen must be a boolean', 'INVALID_TOGGLE_VALUE');
   }
   const result = await setEmployerSignupOpen(isEmployerSignupOpen, req.user?.userId || null);
+  // audit: employer_signup_toggled — who opened or closed employer signup.
+  await appendAudit({
+    event: AUDIT_EVENTS.EMPLOYER_SIGNUP_TOGGLED,
+    actorType: 'admin', actorId: req.adminUser?.adminUserId ?? null,
+    targetType: 'employer_access_config', targetId: null,
+    metadata: { isEmployerSignupOpen },
+  });
   res.json({ data: result });
 }));
 
@@ -61,6 +70,15 @@ router.post('/employer-access/whitelist', asyncHandler(async (req, res) => {
   }
 
   const entry = await addEmployerAccessWhitelistEntry(email, note, req.user?.userId || null);
+  // audit: whitelist_entry_added. targetId stays null — the audit model casts
+  // targetId to an ObjectId and a whitelist row is keyed by email, so the
+  // identifier belongs in metadata.
+  await appendAudit({
+    event: AUDIT_EVENTS.WHITELIST_ENTRY_ADDED,
+    actorType: 'admin', actorId: req.adminUser?.adminUserId ?? null,
+    targetType: 'employer_access_whitelist', targetId: null,
+    metadata: { email },
+  });
   res.json({ data: toPublicWhitelistEntry(entry) });
 }));
 
@@ -68,6 +86,13 @@ router.post('/employer-access/whitelist', asyncHandler(async (req, res) => {
 router.delete('/employer-access/whitelist/:email', asyncHandler(async (req, res) => {
   const email = decodeURIComponent(req.params.email || '').trim().toLowerCase();
   await removeEmployerAccessWhitelistEntry(email);
+  // audit: whitelist_entry_removed — see the note on the add path above.
+  await appendAudit({
+    event: AUDIT_EVENTS.WHITELIST_ENTRY_REMOVED,
+    actorType: 'admin', actorId: req.adminUser?.adminUserId ?? null,
+    targetType: 'employer_access_whitelist', targetId: null,
+    metadata: { email },
+  });
   res.json({ data: { deleted: true } });
 }));
 

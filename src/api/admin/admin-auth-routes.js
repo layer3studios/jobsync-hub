@@ -10,6 +10,8 @@ import jwt from 'jsonwebtoken';
 
 import { JWT_SECRET, ADMIN_JWT_TTL_HOURS, IS_PRODUCTION } from '../../env.js';
 import { findAdminByEmail, markAdminLoggedIn, activateAdminByInviteToken } from '../../models/admin/index.js';
+import { appendAudit } from '../../services/dpdp/audit-log-service.js';
+import { AUDIT_EVENTS } from '../../models/dpdp/dpdp-constants.js';
 import { verifyEmployerGoogleIdToken } from '../../services/auth/verify-google-token-service.js';
 import { requireAdmin } from '../../middleware/require-admin-middleware.js';
 import { asyncHandler } from '../../middleware/async-handler-middleware.js';
@@ -63,6 +65,15 @@ export function createAdminAuthRouter({ verifyToken = verifyEmployerGoogleIdToke
         }
         throw err;
       }
+      // audit: admin_invite_accepted. The actor is the invitee themselves —
+      // this route is pre-auth, so there is no acting admin but the new one.
+      // The token is consumed by activation and deliberately not recorded.
+      await appendAudit({
+        event: AUDIT_EVENTS.ADMIN_INVITE_ACCEPTED,
+        actorType: 'admin', actorId: admin._id,
+        targetType: 'admin_user', targetId: admin._id,
+        metadata: { email: admin.email, role: admin.role },
+      });
       res.cookie(ADMIN_COOKIE_NAME, signAdminToken(admin), cookieOptions());
       res.json({ admin: toPublicAdmin(admin) }); // activation already stamped lastLoginAt
       return;

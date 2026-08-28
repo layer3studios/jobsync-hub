@@ -11,6 +11,7 @@
 
 import { GEMMA_API_KEYS, NODE_ENV } from '../../env.js';
 import { scoreApplication as defaultScoreApplication } from './scoring-service.js';
+import { isFeatureEnabled as defaultIsFeatureEnabled } from '../../models/admin/feature-flags-model.js';
 import { getResumeScoreForApplication } from '../../models/public/resume-score-model.js';
 import {
   claimNextScoreJob, markScoreJobDone, markScoreJobFailedTerminal,
@@ -73,7 +74,14 @@ async function handleFailure(job, slotIndex, code, message, retryable, source) {
 
 /** Claim and process one ready job for a slot. Returns the claimed job, or null if idle. */
 export async function pollAndProcess(slotIndex, now = new Date(), deps = {}) {
-  const { scoreApplication = defaultScoreApplication, interpretResult = interpretScoringResult } = deps;
+  const {
+    scoreApplication = defaultScoreApplication,
+    interpretResult = interpretScoringResult,
+    isFeatureEnabled = defaultIsFeatureEnabled,
+  } = deps;
+  // Checked BEFORE claiming: a paused queue must leave its jobs queued and
+  // untouched, not claim and drop them. Fails open on a DB error.
+  if (!(await isFeatureEnabled('aiScoringEnabled'))) return null;
   const job = await claimNextScoreJob(slotIndex, now);
   if (!job) return null;
   console.log(`[score-queue] slot ${slotIndex} started ${job._id} app=${job.applicationId} attempt=${job.attemptCount}`);

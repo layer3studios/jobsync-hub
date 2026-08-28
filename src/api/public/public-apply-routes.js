@@ -17,6 +17,7 @@ import {
 } from '../../models/employer/assignment-model.js';
 import { processApplication } from '../../services/public/apply-service.js';
 import { countPublicPostingView } from '../../services/public/posting-view-counter.js';
+import { isFeatureEnabled } from '../../models/admin/feature-flags-model.js';
 
 const router = Router();
 const HOUR = 60 * 60 * 1000;
@@ -179,6 +180,15 @@ function normalizeAssignmentFields(body) {
 
 // POST /jobs/:companySlug/:jobSlug/apply — submit an application.
 router.post('/jobs/:companySlug/:jobSlug/apply', perCompanyLimiter, perJobLimiter, asyncHandler(async (req, res) => {
+  // Submission only — the public job pages stay readable while applying is
+  // paused, so a candidate sees the role and a clear message rather than a 404.
+  // isFeatureEnabled fails open: a DB problem must not close applications.
+  if (!(await isFeatureEnabled('publicApplyEnabled'))) {
+    return res.status(503).json({
+      error: 'Applications are temporarily disabled. Please try again shortly.',
+      code: 'APPLY_TEMPORARILY_DISABLED',
+    });
+  }
   await runUpload(req, res);
   const resume = req.file
     ? { buffer: req.file.buffer, originalFilename: req.file.originalname, mimeType: req.file.mimetype }
@@ -186,7 +196,7 @@ router.post('/jobs/:companySlug/:jobSlug/apply', perCompanyLimiter, perJobLimite
   const meta = { applicantIp: req.ip, userAgent: req.get('user-agent') || null, referer: req.get('referer') || null };
   const form = normalizeAssignmentFields(req.body || {});
   const result = await processApplication(req.params.companySlug, req.params.jobSlug, form, resume, meta);
-  res.json(result);
+  return res.json(result);
 }));
 
 export default router;
