@@ -52,6 +52,7 @@ import adminTeamRouter from './api/admin/admin-team-routes.js';
 import { createAdminAiUsageRouter } from './api/admin/admin-ai-usage-routes.js';
 import { ensureUsageStatsIndexes } from './gemma/usage-stats.js';
 import { createScraperHealthRouter } from './api/admin/scraper-health-routes.js';
+import { createQueueMonitorRouter } from './api/admin/queue-monitor-routes.js';
 import { ensureScrapeRunIndexes } from './models/admin/index.js';
 import newsRouter from './api/seeker/news-routes.js';
 import { createEmployerAuthRouter } from './api/employer/employer-auth-routes.js';
@@ -139,6 +140,9 @@ app.use('/api/admin/ai-usage', requireAdmin, createAdminAiUsageRouter());
 // Scraper health. Same reason as ai-usage: mounted before the generic admin
 // router so it is never shadowed.
 app.use('/api/admin/scraper-health', requireAdmin, createScraperHealthRouter());
+// Queue monitor. Same reason as ai-usage: mounted before the generic admin
+// router so it is never shadowed.
+app.use('/api/admin/queues', requireAdmin, createQueueMonitorRouter());
 app.use('/api/admin', adminRouter);
 // Admin analytics: jm_admin_token via new require-admin-middleware (D5 — standalone,
 // no seeker chain). Kept mounted separately (not under adminRouter) to preserve
