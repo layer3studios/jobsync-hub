@@ -10,6 +10,9 @@ import { asyncHandler } from '../../middleware/async-handler-middleware.js';
 import { HttpError } from '../../middleware/error-handler-middleware.js';
 import { createAnalyticsService } from '../../services/admin/analytics-service.js';
 import { FUNNEL_STAGES } from '../../services/admin/analytics-queries.js';
+import {
+  pct, cohortRows, LOW_SAMPLE_THRESHOLD,
+} from '../../services/admin/analytics-retention-queries.js';
 import { getAssignmentStats } from '../../services/admin/assignment-analytics-service.js';
 import {
   POSTHOG_HOST, POSTHOG_PROJECT_ID, POSTHOG_PERSONAL_API_KEY, ANALYTICS_CACHE_TTL_MS,
@@ -105,6 +108,21 @@ export function createAdminAnalyticsRouter(options = {}) {
       postingsPublished: scalar(r.postings_published),
       funnel: funnelRows(r.employer_conversion_funnel, 'employer_conversion_funnel'),
     }),
+  ));
+
+  router.get('/retention', withService(
+    ['dau_mau', 'weekly_cohort_returns', 'retention_signups_by_week'],
+    (r) => {
+      const [dau = 0, wau = 0, mau = 0] = (r.dau_mau?.[0] ?? []).map(Number);
+      return {
+        stickiness: { dau, wau, mau, dauMauPct: pct(dau, mau) },
+        cohorts: cohortRows(r.weekly_cohort_returns, r.retention_signups_by_week),
+        // Stated in the payload, not just the docs: the UI labels the column from it.
+        w1IsApproximate: true,
+        w1Method: 'still active 7+ days after first seen',
+        lowSampleThreshold: LOW_SAMPLE_THRESHOLD,
+      };
+    },
   ));
 
   router.get('/engagement', withService(

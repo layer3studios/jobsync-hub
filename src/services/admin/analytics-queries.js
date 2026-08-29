@@ -6,6 +6,8 @@
 // layer rejects anything else), so inlining it into toDateTime(...) is safe from
 // injection. Event names mirror the 41 frontend custom events (chore/posthog-analytics).
 
+import { RETENTION_QUERIES } from './analytics-retention-queries.js';
+
 const PAGEVIEW = '$pageview';
 
 // since → a HogQL datetime literal. `s` is a validated ISO string (route layer).
@@ -139,4 +141,7 @@ export const QUERIES = {
   // Traffic sources
   traffic_by_referrer: (s) => referrerBuckets(s),
   traffic_by_device: (s) => deviceBuckets(s),
+
+  // Retention + stickiness (split into analytics-retention-queries.js for size).
+  ...RETENTION_QUERIES,
 };
