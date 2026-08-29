@@ -128,6 +128,12 @@ export const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 // receiver refuses every request (503) rather than trusting unsigned events —
 // an unverified webhook is an open write endpoint.
 export const RESEND_WEBHOOK_SECRET = process.env.RESEND_WEBHOOK_SECRET || '';
+
+// Google Indexing API service-account credentials. Accepts either the raw JSON
+// (value starts with '{') or a path to the key file. Absent means indexing is
+// disabled everywhere: the worker idles and the admin page says so.
+export const GOOGLE_INDEXING_SERVICE_ACCOUNT_JSON =
+  process.env.GOOGLE_INDEXING_SERVICE_ACCOUNT_JSON || '';
 // Verified sender identity. Defaults are our real production identity, so a
 // missing var can never produce a malformed or unverified From header.
 export const EMAIL_FROM_ADDRESS = process.env.EMAIL_FROM_ADDRESS || 'hello@jobmesh.in';

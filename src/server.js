@@ -59,6 +59,9 @@ import { createJobBrowserRouter } from './api/admin/job-browser-routes.js';
 import { createEmailLogRouter } from './api/admin/email-log-routes.js';
 import { createAlertSettingsRouter } from './api/admin/alert-settings-routes.js';
 import { createResendWebhookRouter } from './api/public/resend-webhook-route.js';
+import { createSeoRouter } from './api/admin/seo-routes.js';
+import { ensureIndexingJobIndexes } from './models/admin/indexing-job-model.js';
+import { startIndexingWorker } from './services/admin/indexing-worker.js';
 import { ensureEmailEventIndexes } from './models/admin/email-event-model.js';
 import { checkAndAlert } from './services/admin/ai-alert-service.js';
 import { sendWeeklyDigest } from './services/admin/weekly-digest-service.js';
@@ -169,6 +172,7 @@ app.use('/api/admin/feature-flags', requireAdmin, createFeatureFlagsRouter());
 app.use('/api/admin/jobs', requireAdmin, createJobBrowserRouter());
 app.use('/api/admin/email-log', requireAdmin, createEmailLogRouter());
 app.use('/api/admin/alerts', requireAdmin, createAlertSettingsRouter());
+app.use('/api/admin/seo', requireAdmin, createSeoRouter());
 app.use('/api/public/webhooks/resend', createResendWebhookRouter());
 app.use('/api/admin', adminRouter);
 // Admin analytics: jm_admin_token via new require-admin-middleware (D5 — standalone,
@@ -237,6 +241,7 @@ const server = app.listen(PORT, async () => {
     await ensureUsageStatsIndexes();
     await ensureScrapeRunIndexes();
     await ensureEmailEventIndexes();
+    await ensureIndexingJobIndexes();
     await ensureEmployerAccessIndexes();
     await ensureCompanyIndexes();
     await ensureStageIndexes();
@@ -298,6 +303,7 @@ const server = app.listen(PORT, async () => {
     // 24h interview reminders (same in-process pattern as the score worker).
     await ensureInterviewReminderJobIndexes();
     startInterviewReminderWorker();
+    startIndexingWorker();
 
     console.log(`[server] listening on http://localhost:${PORT}`);
 
