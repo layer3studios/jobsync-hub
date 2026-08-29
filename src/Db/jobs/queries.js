@@ -7,6 +7,16 @@ import { col } from '../connection.js';
 const JOBS = 'jobs';
 
 /**
+ * Admin-hidden jobs are excluded from every seeker-facing read below.
+ * `{ adminHiddenAt: null }` matches documents where the field is null OR
+ * absent, so the existing corpus needs no backfill. This is the ONLY hook the
+ * admin job browser has into the seeker read path — hiding never touches
+ * `Status` (which means expired/inactive) or a native posting's `status`
+ * (which belongs to the employer).
+ */
+export const NOT_ADMIN_HIDDEN = { adminHiddenAt: null };
+
+/**
  * Build the Mongo query for /api/jobs given a set of filters. Returns an
  * object suitable to pass directly to `find()` / `countDocuments()`.
  */
@@ -45,7 +55,7 @@ function buildJobsQuery({
   roleCategory, experienceBand, techStack, dateFilter, searchFilter,
   locations, salaryMinLpa, salaryMaxLpa,
 }) {
-  const must = [{ Status: 'active' }];
+  const must = [{ Status: 'active' }, NOT_ADMIN_HIDDEN];
 
   if (company?.trim()) {
     must.push({ Company: { $regex: escapeRegex(company.trim()), $options: 'i' } });
@@ -160,7 +170,7 @@ async function getActiveCompaniesCached(jobs) {
   if (companiesCache.value && now - companiesCache.at < COMPANIES_TTL_MS) {
     return companiesCache.value;
   }
-  const value = await jobs.distinct('Company', { Status: 'active' });
+  const value = await jobs.distinct('Company', { Status: 'active', ...NOT_ADMIN_HIDDEN });
   companiesCache = { value, at: now };
   return value;
 }
@@ -238,14 +248,14 @@ export async function getJobFacets() {
   const jobs = await col(JOBS);
   const [techAgg, locAgg] = await Promise.all([
     jobs.aggregate([
-      { $match: { Status: 'active', 'autoTags.techStack.0': { $exists: true } } },
+      { $match: { Status: 'active', ...NOT_ADMIN_HIDDEN, 'autoTags.techStack.0': { $exists: true } } },
       { $unwind: '$autoTags.techStack' },
       { $group: { _id: '$autoTags.techStack', count: { $sum: 1 } } },
       { $sort: { count: -1, _id: 1 } },
       { $limit: 30 },
     ]).toArray(),
     jobs.aggregate([
-      { $match: { Status: 'active' } },
+      { $match: { Status: 'active', ...NOT_ADMIN_HIDDEN } },
       { $group: { _id: '$Location', count: { $sum: 1 } } },
     ]).toArray(),
   ]);
@@ -292,7 +302,7 @@ export async function getAllJobs(page = 1, limit = 50) {
 /** Return the 9 freshest active jobs for the unauthenticated landing page. */
 export async function getPublicBaitJobs() {
   const jobs = await col(JOBS);
-  return jobs.find({ Status: 'active' })
+  return jobs.find({ Status: 'active', ...NOT_ADMIN_HIDDEN })
     .sort({ PostedDate: -1, createdAt: -1 })
     .limit(9)
     .project({
@@ -306,5 +316,5 @@ export async function getPublicBaitJobs() {
 export async function findJobById(id) {
   if (!ObjectId.isValid(id)) return null;
   const jobs = await col(JOBS);
-  return jobs.findOne({ _id: new ObjectId(id) });
+  return jobs.findOne({ _id: new ObjectId(id), ...NOT_ADMIN_HIDDEN });
 }

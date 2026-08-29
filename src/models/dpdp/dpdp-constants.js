@@ -62,6 +62,11 @@ export const AUDIT_EVENTS = Object.freeze({
   WHITELIST_ENTRY_ADDED: 'whitelist_entry_added',
   WHITELIST_ENTRY_REMOVED: 'whitelist_entry_removed',
   FEATURE_FLAG_CHANGED: 'feature_flag_changed',
+  // Admin moderation of the jobs corpus. A delete is irreversible, so its
+  // entry is the only surviving record that the job existed.
+  JOB_HIDDEN: 'job_hidden',
+  JOB_UNHIDDEN: 'job_unhidden',
+  JOB_DELETED: 'job_deleted',
 });
 
 /** True when `value` is one of the frozen enum's values. */
