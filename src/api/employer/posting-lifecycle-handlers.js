@@ -9,6 +9,7 @@ import {
   reopenPostingForCompany, deletePostingForCompany, toPublicPosting,
 } from '../../models/employer/posting-model.js';
 import { countApplicationsForJob } from '../../models/public/application-model.js';
+import { fireIndexing } from '../../services/admin/posting-indexing-hook.js';
 
 /**
  * POST /:postingId/reopen — status → 'active'.
@@ -27,6 +28,7 @@ export async function reopenPosting(req, res) {
     );
   }
   const posting = await reopenPostingForCompany(req.employerCompanyId, req.posting._id);
+  fireIndexing(posting, 'updated');
   res.json({ posting: toPublicPosting(posting) });
 }
 
@@ -49,5 +51,9 @@ export async function deletePosting(req, res) {
   }
   const deleted = await deletePostingForCompany(req.employerCompanyId, req.posting._id);
   if (!deleted) throw new HttpError(404, 'Posting not found', 'POSTING_NOT_FOUND');
+  // Draft-only, so the URL is almost never public — but a posting that was live
+  // before being set back to draft has a URL Google may still hold. Submitting a
+  // removal for a URL that already 404s is harmless; leaving a live one is not.
+  fireIndexing(req.posting, 'deleted');
   res.json({ deleted: true, id: req.posting._id.toString() });
 }
