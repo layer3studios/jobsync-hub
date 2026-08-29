@@ -123,6 +123,11 @@ export const ANALYTICS_CACHE_TTL_MS = parseInt(process.env.ANALYTICS_CACHE_TTL_M
 // sendTransactionalEmail() returns { sent: false } instead of throwing, so the
 // server boots and every caller's flow survives without email configured.
 export const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+
+// Svix signing secret for Resend's delivery webhooks. Unset means the webhook
+// receiver refuses every request (503) rather than trusting unsigned events —
+// an unverified webhook is an open write endpoint.
+export const RESEND_WEBHOOK_SECRET = process.env.RESEND_WEBHOOK_SECRET || '';
 // Verified sender identity. Defaults are our real production identity, so a
 // missing var can never produce a malformed or unverified From header.
 export const EMAIL_FROM_ADDRESS = process.env.EMAIL_FROM_ADDRESS || 'hello@jobmesh.in';

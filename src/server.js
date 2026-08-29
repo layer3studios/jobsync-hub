@@ -56,6 +56,13 @@ import { createQueueMonitorRouter } from './api/admin/queue-monitor-routes.js';
 import { createAuditLogRouter } from './api/admin/audit-log-routes.js';
 import { createFeatureFlagsRouter } from './api/admin/feature-flags-routes.js';
 import { createJobBrowserRouter } from './api/admin/job-browser-routes.js';
+import { createEmailLogRouter } from './api/admin/email-log-routes.js';
+import { createAlertSettingsRouter } from './api/admin/alert-settings-routes.js';
+import { createResendWebhookRouter } from './api/public/resend-webhook-route.js';
+import { ensureEmailEventIndexes } from './models/admin/email-event-model.js';
+import { checkAndAlert } from './services/admin/ai-alert-service.js';
+import { sendWeeklyDigest } from './services/admin/weekly-digest-service.js';
+import { getAlertSettings } from './models/admin/alert-settings-model.js';
 import { isFeatureEnabled } from './models/admin/feature-flags-model.js';
 import { createCompanyHealthRouter } from './api/admin/company-health-routes.js';
 import { createMissionControlRouter } from './api/admin/mission-control-routes.js';
@@ -125,6 +132,10 @@ const app = express();
 
 // ─── Middleware ───────────────────────────────────────────────────
 app.use(cors({ origin: FRONTEND_URL, credentials: true }));
+// Svix signs the EXACT request bytes, so this one path takes the raw buffer.
+// It MUST precede the global express.json below: once json() has parsed the
+// body, the original bytes are unrecoverable and no signature can verify.
+app.use('/api/public/webhooks/resend', express.raw({ type: '*/*', limit: '1mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
@@ -156,6 +167,9 @@ app.use('/api/admin/overview', requireAdmin, createMissionControlRouter());
 app.use('/api/admin/audit-log', requireAdmin, createAuditLogRouter());
 app.use('/api/admin/feature-flags', requireAdmin, createFeatureFlagsRouter());
 app.use('/api/admin/jobs', requireAdmin, createJobBrowserRouter());
+app.use('/api/admin/email-log', requireAdmin, createEmailLogRouter());
+app.use('/api/admin/alerts', requireAdmin, createAlertSettingsRouter());
+app.use('/api/public/webhooks/resend', createResendWebhookRouter());
 app.use('/api/admin', adminRouter);
 // Admin analytics: jm_admin_token via new require-admin-middleware (D5 — standalone,
 // no seeker chain). Kept mounted separately (not under adminRouter) to preserve
@@ -222,6 +236,7 @@ const server = app.listen(PORT, async () => {
     await ensureAdminUserIndexes();
     await ensureUsageStatsIndexes();
     await ensureScrapeRunIndexes();
+    await ensureEmailEventIndexes();
     await ensureEmployerAccessIndexes();
     await ensureCompanyIndexes();
     await ensureStageIndexes();
@@ -303,6 +318,18 @@ const server = app.listen(PORT, async () => {
     } else {
       console.log('[cron] scrape schedule DISABLED (SYNC_ENABLED=false)');
     }
+
+    // AI budget alerts every 30 minutes, and the digest on Monday 08:00.
+    // Both no-op silently unless alertsEnabled is on, so an unconfigured
+    // install never emails anyone. checkAndAlert re-checks the flag itself.
+    cron.schedule('*/30 * * * *', () => { void checkAndAlert(); });
+    cron.schedule('0 8 * * 1', async () => {
+      const settings = await getAlertSettings().catch(() => null);
+      if (!settings?.alertsEnabled) return;
+      console.log('[cron] weekly admin digest');
+      void sendWeeklyDigest();
+    });
+    console.log('[cron] alert checks + weekly digest scheduled');
 
     if (RUN_SCRAPER_ON_START) {
       console.log('[boot] RUN_SCRAPER_ON_START is true — running initial scrape');
